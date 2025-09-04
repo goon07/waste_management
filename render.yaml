@@ -10,11 +10,11 @@ services:
       php artisan config:cache
       php artisan route:cache
       php artisan view:cache
-    startCommand: php artisan serve --host 0.0.0.0 --port 10000
+    startCommand: php -S 0.0.0.0:10000 -t public
     envVars:
       - key: APP_KEY
         fromDatabase: false
-        value: base64:Q8s09jjRPiwsHDs53nlsvhi7pR/tv06MTZiyitrFwaE=
+        value: <SET_IN_RENDER_DASHBOARD>
       - key: APP_ENV
         value: production
       - key: APP_DEBUG
@@ -22,15 +22,17 @@ services:
       - key: DB_CONNECTION
         value: pgsql
       - key: DB_HOST
-        value: aws-0-ap-southeast-1.pooler.supabase.com
+        value: <SET_IN_RENDER_DASHBOARD>
       - key: DB_PORT
         value: '6543'
       - key: DB_DATABASE
-        value: postgres
+        value: <SET_IN_RENDER_DASHBOARD>
       - key: DB_USERNAME
-        value: postgres.spysutplknjrudxbojsw
+        value: <SET_IN_RENDER_DASHBOARD>
       - key: DB_PASSWORD
-        value: xZ4UmeorR7c8E1IJ
+        fromDatabase: false
+        value: <SET_IN_RENDER_DASHBOARD>
+
   - type: cron
     name: run-scheduled-tasks
     env: php
@@ -41,7 +43,7 @@ services:
     envVars:
       - key: APP_KEY
         fromDatabase: false
-        value: base64:Q8s09jjRPiwsHDs53nlsvhi7pR/tv06MTZiyitrFwaE=
+        value: <SET_IN_RENDER_DASHBOARD>
       - key: APP_ENV
         value: production
       - key: APP_DEBUG
@@ -49,12 +51,13 @@ services:
       - key: DB_CONNECTION
         value: pgsql
       - key: DB_HOST
-        value: aws-0-ap-southeast-1.pooler.supabase.com
+        value: <SET_IN_RENDER_DASHBOARD>
       - key: DB_PORT
         value: '6543'
       - key: DB_DATABASE
-        value: postgres
+        value: <SET_IN_RENDER_DASHBOARD>
       - key: DB_USERNAME
-        value: postgres.spysutplknjrudxbojsw
+        value: <SET_IN_RENDER_DASHBOARD>
       - key: DB_PASSWORD
-        value: xZ4UmeorR7c8E1IJ
+        fromDatabase: false
+        value: <SET_IN_RENDER_DASHBOARD>
