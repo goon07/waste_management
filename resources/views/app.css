@@ -1,0 +1,36 @@
+.hero-gradient {
+    background: linear-gradient(135deg, #10b981 0%, #047857 100%);
+}
+.service-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+.stats-item {
+    transition: all 0.3s ease;
+}
+.stats-item:hover {
+    transform: scale(1.05);
+}
+.map-container {
+    height: 400px;
+    border-radius: 1rem;
+    overflow: hidden;
+}
+.testimonial-card {
+    transition: all 0.3s ease;
+}
+.testimonial-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+.nav-link:hover {
+    color: #10b981;
+}
+.mobile-menu {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+}
+.mobile-menu.open {
+    max-height: 500px;
+}

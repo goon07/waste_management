@@ -1,0 +1,60 @@
+services:
+  - type: web
+    name: mw
+    env: php
+    region: frankfurt   # choose closest to Zambia
+    plan: free          # or starter/standard if needed
+    branch: main        # your main branch
+    buildCommand: |
+      composer install --optimize-autoloader --no-dev
+      php artisan config:cache
+      php artisan route:cache
+      php artisan view:cache
+    startCommand: php artisan serve --host 0.0.0.0 --port 10000
+    envVars:
+      - key: APP_KEY
+        fromDatabase: false
+        value: base64:Q8s09jjRPiwsHDs53nlsvhi7pR/tv06MTZiyitrFwaE=
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_HOST
+        value: aws-0-ap-southeast-1.pooler.supabase.com
+      - key: DB_PORT
+        value: '6543'
+      - key: DB_DATABASE
+        value: postgres
+      - key: DB_USERNAME
+        value: postgres.spysutplknjrudxbojsw
+      - key: DB_PASSWORD
+        value: xZ4UmeorR7c8E1IJ
+  - type: cron
+    name: run-scheduled-tasks
+    env: php
+    region: frankfurt
+    plan: free
+    schedule: "*/5 * * * *" # every 5 minutes
+    startCommand: php artisan schedule:run
+    envVars:
+      - key: APP_KEY
+        fromDatabase: false
+        value: base64:Q8s09jjRPiwsHDs53nlsvhi7pR/tv06MTZiyitrFwaE=
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_HOST
+        value: aws-0-ap-southeast-1.pooler.supabase.com
+      - key: DB_PORT
+        value: '6543'
+      - key: DB_DATABASE
+        value: postgres
+      - key: DB_USERNAME
+        value: postgres.spysutplknjrudxbojsw
+      - key: DB_PASSWORD
+        value: xZ4UmeorR7c8E1IJ
