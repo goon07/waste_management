@@ -22,6 +22,7 @@ Route::middleware(['auth'])->group(function () {
 
 // Override authentication routes
 Route::get('/signin', [AuthController::class, 'showLoginForm'])->name('signin');
+Route::post('/login', [AuthController::class, 'login'])->name('custom.login');
 Route::get('/register', [AuthController::class, 'showRegistrationForm'])->name('register');
 Route::post('/register', [AuthController::class, 'register'])->name('register');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
