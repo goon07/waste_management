@@ -7,7 +7,7 @@
                     <a href="{{ auth()->user()->role === 'resident' ? route('resident.dashboard') : (auth()->user()->role === 'council_admin' ? route('council.dashboard') : route('collector.routes')) }}" class="text-2xl font-bold text-green-600">Waste Management</a>
                 </div>
 
-                <!-- Desktop Menu -->
+                <!-- Desktop -->
                 <div class="hidden md:flex md:items-center md:space-x-6">
                      @if (auth()->user()->role === 'superadmin')
                      <a href="{{ route('map') }}"  class="text-gray-700 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium {{ request()->routeIs('map') ? 'border-b-2 border-green-600' : '' }}">Map</a>
@@ -45,7 +45,7 @@
                     </form>
                 </div>
 
-                <!-- Mobile Menu Button -->
+                <!-- Mobile -->
                 <div class="md:hidden flex items-center">
                     <button @click="open = !open" class="text-gray-700 hover:text-green-600 focus:outline-none" aria-label="Toggle navigation menu">
                         <i class="fas fa-bars text-2xl" x-show="!open" aria-hidden="true"></i>
