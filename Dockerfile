@@ -41,4 +41,4 @@ COPY ./docker/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080
 
 # Start Nginx + PHP-FPM
-CMD service nginx start && php-fpm
+CMD php-fpm -F
