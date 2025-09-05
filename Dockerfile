@@ -19,11 +19,14 @@ RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local
 
 WORKDIR /var/www/html
 
-# Copy Laravel app
+# Copy the Laravel app
 COPY . .
 
 # Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader
+RUN composer install --no-dev --optimize-autoloader && \
+    php artisan config:cache && \
+    php artisan route:cache && \
+    php artisan view:cache
 
 # Copy frontend build artifacts
 COPY --from=frontend /app/public/build ./public/build
@@ -37,5 +40,5 @@ COPY ./docker/nginx.conf /etc/nginx/conf.d/default.conf
 # Expose port
 EXPOSE 8080
 
-# Start PHP-FPM + Nginx
-CMD php-fpm -D && nginx -g 'daemon off;'
+# Start Nginx + PHP-FPM
+CMD service nginx start && php-fpm
