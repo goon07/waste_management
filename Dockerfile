@@ -1,4 +1,4 @@
-# Use official PHP CLI image
+# Use official PHP image with CLI + necessary extensions
 FROM php:8.2-cli
 
 # Set working directory
@@ -9,27 +9,30 @@ RUN apt-get update && apt-get install -y \
     unzip git curl libpq-dev nodejs npm \
     && docker-php-ext-install pdo_pgsql
 
-# Install Composer
+# Install Composer globally
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
-# Copy composer files and install PHP dependencies
+# Copy only composer files first (for caching)
 COPY composer.json composer.lock ./
-RUN composer install --optimize-autoloader --no-dev
 
-# Copy all project files
+# Install PHP dependencies without running scripts yet
+RUN composer install --optimize-autoloader --no-dev --no-scripts
+
+# Copy the rest of the project
 COPY . .
 
-# Build Node/Vite assets
-RUN npm install
-RUN npm run build
-
-# Cache Laravel config, routes, views
+# Now run Laravel artisan commands (artisan exists now)
+RUN php artisan config:clear
 RUN php artisan config:cache
 RUN php artisan route:cache
 RUN php artisan view:cache
 
-# Expose port for Railway
+# Install Node dependencies and build assets
+RUN npm install
+RUN npm run build
+
+# Expose the port Laravel will run on
 EXPOSE 8080
 
-# Run Laravel
+# Command to run Laravel's built-in server
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8080"]
