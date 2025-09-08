@@ -14,7 +14,7 @@
                 </div>
             @endif
             <div class="bg-white rounded-xl shadow-md p-6">
-                <form action="{{ route('register') }}" method="POST">
+                <form action="{{ route('custom.register') }}" method="POST">
                     @csrf
                     <div class="mb-4">
                         <label for="name" class="block text-gray-700 font-medium mb-2">Full Name</label>

@@ -20,7 +20,7 @@
             </nav>
             
             <div class="hidden md:block">
-                <a href="{{ route('signin') }}" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-full font-medium transition duration-300">
+                <a href="{{ route('custom.signin') }}" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-full font-medium transition duration-300">
                     Sign In
                 </a>
             </div>

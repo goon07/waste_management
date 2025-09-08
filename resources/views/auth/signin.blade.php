@@ -29,7 +29,7 @@
                             {{ session('status') }}
                         </div>
                     @endif
-                    <form action="{{ route('login') }}" method="POST">
+                    <form action="{{ route('custom.login') }}" method="POST">
                         @csrf
                         <div class="mb-6">
                             <label for="email" class="block text-gray-700 font-medium mb-2">Email</label>
