@@ -37,7 +37,7 @@
                 <a href="#about" class="nav-link text-gray-700 hover:text-green-600 font-medium py-2 border-b">About</a>
                 <a href="#stats" class="nav-link text-gray-700 hover:text-green-600 font-medium py-2 border-b">Impact</a>
                 <a href="#contact" class="nav-link text-gray-700 hover:text-green-600 font-medium py-2 border-b">Contact</a>
-                <a href="{{ route('signin') }}" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-full font-medium my-2 transition duration-300">
+                <a href="{{ route('custom.signin') }}" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-full font-medium my-2 transition duration-300">
                     Sign In
                 </a>
             </div>
