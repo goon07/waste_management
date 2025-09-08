@@ -59,7 +59,7 @@
                         <td class="border px-2 py-1" 
                             x-text="resident.address"></td>
                         <td class="border px-2 py-1" 
-                            x-text="resident.payment_status ? 'Paid' : 'Unpaid'"></td>
+                            x-text="resident.payment_status"></td>
                         <td class="border px-2 py-1" 
                             x-text="resident.user_status"></td>
                     </tr>
