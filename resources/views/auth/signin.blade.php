@@ -61,7 +61,7 @@
                 <!-- Sign Up Form -->
                 <div id="signup-form" class="form-content hidden">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Sign Up</h2>
-                    <form action="{{ route('register') }}" method="POST">
+                    <form action="{{ route('custom.register') }}" method="POST">
                         @csrf
                         <div class="mb-6">
                             <label for="name" class="block text-gray-700 font-medium mb-2">Name</label>
