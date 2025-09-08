@@ -39,7 +39,7 @@
         <a href="{{ route('management.residents') }}" class="text-gray-700 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium {{ request()->routeIs('management.residents') ? 'border-b-2 border-green-600' : '' }}">Residents</a>
         <a href="{{ route('map') }}" class="text-gray-700 hover:text-green-600 px-3 py-2 rounded-md text-sm font-medium  {{ request()->routeIs('map') ? 'border-b-2 border-green-600' : '' }}"> Map</a>
                         @endif
-                    <form action="{{ route('logout') }}" method="POST" class="inline">
+                    <form action="{{ route('custom.logout') }}" method="POST" class="inline">
                         @csrf
                         <button type="submit" class="text-gray-700 hover:text-red-600 px-3 py-2 rounded-md text-sm font-medium">Logout</button>
                     </form>
