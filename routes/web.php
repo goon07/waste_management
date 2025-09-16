@@ -91,37 +91,14 @@ Route::prefix('council')->middleware(['auth', 'role:council_admin'])->group(func
     Route::get('/collectors/{id}/edit', [CouncilController::class, 'editCollector'])->name('council.collectors.edit');
 
     Route::post('/company-admins/{id}/reset-password', [CouncilController::class, 'resetCompanyAdminPassword'])->name('council.company-admins.reset-password');
-    
-    // Update collector
-    Route::put('/collectors/{id}', [CouncilController::class, 'updateCollector'])->name('council.collectors.update');
-    
-    // Activate/deactivate collector
-    Route::post('/collectors/{id}/deactivate', [CouncilController::class, 'deactivateCollector'])->name('council.collectors.deactivate');
-    
-    // Collector companies management
-    Route::post('/companies', [CouncilController::class, 'storeCompany'])->name('council.companies.store');
-    Route::put('/companies/{id}', [CouncilController::class, 'updateCompany'])->name('council.companies.update');
     Route::get('/companies/{id}/edit', [CouncilController::class, 'editCompany'])->name('council.companies.edit');
-
-
-
-    Route::get('/payments', [CouncilController::class, 'bills'])->name('council.payments');
+Route::get('/payments', [CouncilController::class, 'bills'])->name('council.payments');
     Route::post('/request/approve/{requestId}', [CouncilController::class, 'approveRequest'])->name('council.request.approve');
     Route::post('/request/reject/{requestId}', [CouncilController::class, 'rejectRequest'])->name('council.request.reject');
     Route::post('/pickup/schedule/{pickupId}', [CouncilController::class, 'schedulePickup'])->name('council.pickup.schedule');
     Route::post('/issue/{issueId}/status', [CouncilController::class, 'updateIssueStatus'])->name('council.issue.status');
   Route::get('/users/create', [CouncilController::class, 'showCreateUserForm'])->name('council.user.create');
 Route::post('/users/create', [CouncilController::class, 'createUser']);
-
-
-    
-
-
-
-
-
-
-
     Route::get('/users/{id}/edit', [CouncilController::class, 'editUser'])->name('council.user.edit');
     Route::put('/council/users/{id}', [CouncilController::class, 'updateUser'])->name('council.user.update');
     Route::post('/council/users/{id}/password-reset', [CouncilController::class, 'resetUserPassword'])->name('council.user.password.reset');
