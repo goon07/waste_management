@@ -10,7 +10,7 @@ class Residency extends Model
     public $timestamps = true;
 
     protected $fillable = [
-        'user_id', 'council_id', 'collector_company_id', 'household_size',
+        'user_id', 'council_id', 'collector_company_id', 'area_id', 'household_size',
         'waste_collection_frequency', 'billing_address', 'latitude', 'longitude',
     ];
 
@@ -19,11 +19,7 @@ class Residency extends Model
         'updated_at' => 'datetime',
     ];
 
-    public function user()
-    {
-        return $this->belongsTo(User::class);
-    }
-
+  
     public function council()
     {
         return $this->belongsTo(Council::class);
@@ -33,4 +29,15 @@ class Residency extends Model
     {
         return $this->belongsTo(CollectorCompany::class);
     }
+
+  public function user()
+{
+    return $this->belongsTo(User::class, 'user_id', 'id');
+}
+
+public function area()
+{
+    return $this->belongsTo(Area::class, 'area_id', 'id');
+}
+
 }

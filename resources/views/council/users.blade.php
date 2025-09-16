@@ -7,12 +7,18 @@
         <button @click="tab = 'residents'" 
                 :class="tab === 'residents' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
                 class="px-4 py-2 rounded">Residents</button>
-      
+    </div>
+
+    <div class="mb-4">
+        <a href="{{ route('council.user.create') }}" 
+           class="inline-block bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+           + Add New Resident
+        </a>
     </div>
 
     <!-- Residents Table -->
     <div x-show="tab === 'residents'" 
-         x-data="residentsTable({{ Js::from($residents) }})" 
+         x-data="residentsTable({{ Js::from($residentsData) }})" 
          class="mt-4">
         <div class="mb-4 grid grid-cols-1 md:grid-cols-4 gap-4">
             <!-- Search -->
@@ -47,8 +53,10 @@
                     <th class="border px-2 py-1">Name</th>
                     <th class="border px-2 py-1">Email</th>
                     <th class="border px-2 py-1">Address</th>
+                    <th class="border px-2 py-1">Area</th>
                     <th class="border px-2 py-1">Payment</th>
                     <th class="border px-2 py-1">Status</th>
+                    <th class="border px-2 py-1">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -56,16 +64,17 @@
                     <tr>
                         <td class="border px-2 py-1" x-text="resident.name"></td>
                         <td class="border px-2 py-1" x-text="resident.email"></td>
-                        <td class="border px-2 py-1" 
-                            x-text="resident.address"></td>
-                        <td class="border px-2 py-1" 
-                            x-text="resident.payment_status"></td>
-                        <td class="border px-2 py-1" 
-                            x-text="resident.user_status"></td>
+                        <td class="border px-2 py-1" x-text="resident.address ?? 'N/A'"></td>
+                        <td class="border px-2 py-1" x-text="resident.area_name ?? 'N/A'"></td>
+                        <td class="border px-2 py-1" x-text="resident.payment_status ?? 'N/A'"></td>
+                        <td class="border px-2 py-1" x-text="resident.user_status ?? 'N/A'"></td>
+                        <td class="border px-2 py-1">
+                            <a :href="`/council/users/${resident.id}/edit`" class="text-blue-600 hover:underline mr-2">View/Edit</a>
+                        </td>
                     </tr>
                 </template>
                 <tr x-show="filteredResidents.length === 0">
-                    <td colspan="5" class="text-center p-4">No residents found</td>
+                    <td colspan="7" class="text-center p-4">No residents found</td>
                 </tr>
             </tbody>
         </table>
@@ -83,10 +92,6 @@
             </button>
         </div>
     </div>
-
-  
-
-  
 </div>
 
 <script>
@@ -103,31 +108,28 @@ function residentsTable(initialResidents) {
         get filteredResidents() {
             let data = this.residents;
 
-            // 🔍 Search
+            // Search filter
             if (this.search) {
                 const term = this.search.toLowerCase();
                 data = data.filter(r =>
                     r.name.toLowerCase().includes(term) ||
                     r.email.toLowerCase().includes(term) ||
-                    (r.residency?.address ?? '').toLowerCase().includes(term)
+                    (r.address ?? '').toLowerCase().includes(term) ||
+                    (r.area_name ?? '').toLowerCase().includes(term)
                 );
             }
 
-            // 🏷️ Filter by Status
+            // Status filter
             if (this.statusFilter) {
-                data = data.filter(r => 
-                    this.statusFilter === 'active' ? r.user_status: !r.user_status
-                );
+                data = data.filter(r => r.user_status === this.statusFilter);
             }
 
-            // 💳 Filter by Payment
+            // Payment filter
             if (this.paymentFilter) {
-                data = data.filter(r =>
-                    this.paymentFilter === 'paid' ? r.payment_status : !r.payment_status
-                );
+                data = data.filter(r => r.payment_status === this.paymentFilter);
             }
 
-            // 🔼 Sort by Name
+            // Sort by name
             if (this.nameOrder) {
                 data = [...data].sort((a, b) => {
                     return this.nameOrder === 'asc' 

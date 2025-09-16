@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use Illuminate\Support\Str;
+use App\Models\CollectorResidentAssignment;
+
 use Illuminate\Foundation\Auth\User as Authenticatable;
 
 class User extends Authenticatable
@@ -23,6 +26,17 @@ class User extends Authenticatable
         'updated_at' => 'datetime',
     ];
 
+
+    protected static function boot()
+    {
+        parent::boot();
+        static::creating(function ($model) {
+            if (empty($model->{$model->getKeyName()})) {
+                $model->{$model->getKeyName()} = (string) Str::uuid();
+            }
+        });
+    }
+
     public function council()
     {
         return $this->belongsTo(Council::class);
@@ -32,11 +46,22 @@ class User extends Authenticatable
     {
         return $this->belongsTo(CollectorCompany::class);
     }
-
-    public function residency()
+     public function collectorResidentAssignments()
     {
-        return $this->hasOne(Residency::class);
+        return $this->hasMany(CollectorResidentAssignment::class, 'resident_id', 'id');
     }
+
+public function residency()
+{
+    return $this->hasOne(Residency::class, 'user_id', 'id');
+}
+
+public function collector()
+{
+    return $this->belongsTo(User::class, 'collector_id', 'id');
+}
+
+
 
     public function collections()
     {
@@ -67,4 +92,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(Notification::class);
     }
+ public function bills()
+{
+    return $this->hasMany(UserBill::class, 'user_id');
+}
+
 }

@@ -146,7 +146,7 @@
                                         @elseif ($pickup->status == 'scheduled')
                                             <div class="flex space-x-2">
                                                 <a href="{{ route('council.pickup.edit', $pickup->id) }}" class="bg-blue-600 text-white px-2 py-1 rounded-lg hover:bg-blue-700 transition duration-200">Edit</a>
-                                                <form action="{{ route('council.pickup.cancel', $pickup->id) }}" method="POST" x-data="{ confirmCancel: false }">
+ <form action="{{ route('council.pickup.cancel', $pickup->id) }}" method="POST" x-data="{ confirmCancel: false }">
                                                     @csrf
                                                     <button type="button" @click="confirmCancel = true" class="bg-red-600 text-white px-2 py-1 rounded-lg hover:bg-red-700 transition duration-200" x-show="!confirmCancel">Cancel</button>
                                                     <div x-show="confirmCancel" class="flex space-x-2">

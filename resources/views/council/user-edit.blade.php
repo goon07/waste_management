@@ -51,6 +51,18 @@
                     @error('address') <p class="text-red-600 text-sm mt-1">{{ $message }}</p> @enderror
                 </div>
             </div>
+            <div>
+    <label for="area_id" class="block font-medium text-gray-700">Area</label>
+    <select name="area_id" id="area_id" class="mt-1 w-full border border-gray-300 rounded px-3 py-2">
+        <option value="">None</option>
+        @foreach ($areas as $area)
+            <option value="{{ $area->id }}" {{ old('area_id', $user->residency->area_id ?? '') == $area->id ? 'selected' : '' }}>
+                {{ $area->name }}
+            </option>
+        @endforeach
+    </select>
+    @error('area_id') <p class="text-red-600 text-sm mt-1">{{ $message }}</p> @enderror
+</div>
 
             <button type="submit" class="mt-6 bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">Update User</button>
         </form>

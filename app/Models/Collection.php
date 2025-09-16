@@ -23,15 +23,16 @@ class Collection extends Model
         'updated_at' => 'datetime',
     ];
 
-    public function user()
-    {
-        return $this->belongsTo(User::class, 'user_id');
-    }
+  public function user()
+{
+    return $this->belongsTo(User::class, 'user_id', 'id');
+}
 
-    public function collector()
-    {
-        return $this->belongsTo(User::class, 'collector_id');
-    }
+public function collector()
+{
+    return $this->belongsTo(User::class, 'collector_id', 'id');
+}
+
 
     public function collectorCompany()
     {
@@ -47,4 +48,8 @@ class Collection extends Model
     {
         return $this->belongsTo(WasteType::class, 'waste_type');
     }
+    public function schedules()
+{
+    return $this->hasMany(CollectionSchedule::class, 'collection_id');
+}
 }

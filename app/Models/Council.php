@@ -47,4 +47,9 @@ class Council extends Model
     {
         return $this->belongsToMany(CollectorCompany::class, 'council_collector_companies', 'council_id', 'collector_company_id');
     }
+    public function areas()
+{
+    return $this->hasMany(Area::class);
+}
+
 }

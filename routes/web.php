@@ -9,7 +9,9 @@ use App\Http\Controllers\CouncilController;
 use App\Http\Controllers\ResidentController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\MapController;
+use App\Http\Controllers\AreaController;
 use Illuminate\Support\Facades\Auth;
+
 
 Auth::routes();
 Route::get('/test', fn() => view('test'))->name('test');
@@ -28,6 +30,7 @@ Route::get('/register', [AuthController::class, 'showRegistrationForm'])->name('
 Route::post('/logout', [AuthController::class, 'logout'])->name('custom.logout');
 
 // Home and public routes
+Route::get('/home', [HomeController::class, 'index'])->name('custom.home');
 Route::get('/', [HomeController::class, 'index'])->name('home');
 Route::post('/contact', [HomeController::class, 'contactSubmit'])->name('contact.submit');
 Route::get('/pickup', [HomeController::class, 'pickup'])->name('pickup');
@@ -55,7 +58,7 @@ Route::prefix('superadmin')->middleware(['auth', 'role:management'])->group(func
 // Council routes
 Route::prefix('council')->middleware(['auth', 'role:council_admin'])->group(function () {
     Route::get('/collectors', [CouncilController::class, 'collectorsIndex'])->name('council.collectors');
-    Route::post('/collectors', [CouncilController::class, 'storeCollector'])->name('council.collectors.store');
+   // Route::post('/collectors', [CouncilController::class, 'storeCollector'])->name('council.collectors.store');
     Route::put('/collectors/{id}', [CouncilController::class, 'updateCollector'])->name('council.collectors.update');
     Route::post('/ccollectors/{id}/deactivate', [CouncilController::class, 'deactivateCollector'])->name('council.collectors.deactivate');
     Route::post('/companies', [CouncilController::class, 'storeCompany'])->name('council.companies.store');
@@ -64,25 +67,74 @@ Route::prefix('council')->middleware(['auth', 'role:council_admin'])->group(func
     Route::get('/requests', [CouncilController::class, 'getRequests'])->name('council.requests');
     Route::get('/pickups', [CouncilController::class, 'pickups'])->name('council.pickups');
     Route::get('/scheduled-pickups', [CouncilController::class, 'getScheduledPickups'])->name('council.scheduled-pickups');
-    Route::get('/completed-pickups', [CouncilController::class, 'getCompletedPickups'])->name('council.completed-pickups');
+    Route::get('/completed-pickups', [CouncilController::class, 'getCompletedPickups'])->name('council.completed-pickups');    
+    Route::get('/pickup/edit/{id}', [CouncilController::class, 'editPickup'])->name('council.pickup.edit'); // You need to add this
+    Route::post('/pickup/cancel/{id}', [CouncilController::class, 'cancelPickup'])->name('council.pickup.cancel'); 
     Route::get('/users', [CouncilController::class, 'getUsers'])->name('council.users');
     Route::get('/bills/{bill}', [CouncilController::class, 'billDetails'])->name('council.bill.details');
     Route::get('/issues', [CouncilController::class, 'issues'])->name('council.issues');
-
+    Route::resource('areas', AreaController::class)->names('council.areas');
+    Route::post('/collector-company/assign', [CouncilController::class, 'assignCollectorCompanyToCouncil'])->name('council.collector-company.assign');
     // Reports
     Route::get('/reports', [CouncilController::class, 'reports'])->name('council.reports');
+
+   Route::post('/collector-company/assign-area', [CouncilController::class, 'assignCollectorCompanyToArea'])->name('council.collector-company.assign-area');
+   // Route::get('/collectors', [CouncilController::class, 'collectorsIndex'])->name('council.collectors');
+    
+    // Show form to create collector (direct or company)
+    Route::get('/collectors/create', [CouncilController::class, 'showCreateCollectorForm'])->name('council.collectors.create');
+    
+    // Store new collector
+    Route::post('/collectors', [CouncilController::class, 'storeCompanyAdmin'])->name('council.collectors.store');
+    
+    // Show form to edit collector
+    Route::get('/collectors/{id}/edit', [CouncilController::class, 'editCollector'])->name('council.collectors.edit');
+
+    Route::post('/company-admins/{id}/reset-password', [CouncilController::class, 'resetCompanyAdminPassword'])->name('council.company-admins.reset-password');
+    
+    // Update collector
+    Route::put('/collectors/{id}', [CouncilController::class, 'updateCollector'])->name('council.collectors.update');
+    
+    // Activate/deactivate collector
+    Route::post('/collectors/{id}/deactivate', [CouncilController::class, 'deactivateCollector'])->name('council.collectors.deactivate');
+    
+    // Collector companies management
+    Route::post('/companies', [CouncilController::class, 'storeCompany'])->name('council.companies.store');
+    Route::put('/companies/{id}', [CouncilController::class, 'updateCompany'])->name('council.companies.update');
+    Route::get('/companies/{id}/edit', [CouncilController::class, 'editCompany'])->name('council.companies.edit');
+
+
 
     Route::get('/payments', [CouncilController::class, 'bills'])->name('council.payments');
     Route::post('/request/approve/{requestId}', [CouncilController::class, 'approveRequest'])->name('council.request.approve');
     Route::post('/request/reject/{requestId}', [CouncilController::class, 'rejectRequest'])->name('council.request.reject');
     Route::post('/pickup/schedule/{pickupId}', [CouncilController::class, 'schedulePickup'])->name('council.pickup.schedule');
     Route::post('/issue/{issueId}/status', [CouncilController::class, 'updateIssueStatus'])->name('council.issue.status');
-    Route::post('/council/users/create', [CouncilController::class, 'createUser'])->name('council.user.create');
-    Route::get('/council/users/{id}/edit', [CouncilController::class, 'editUser'])->name('council.user.edit');
+  Route::get('/users/create', [CouncilController::class, 'showCreateUserForm'])->name('council.user.create');
+Route::post('/users/create', [CouncilController::class, 'createUser']);
+
+
+    
+
+
+
+
+
+
+
+    Route::get('/users/{id}/edit', [CouncilController::class, 'editUser'])->name('council.user.edit');
+    Route::put('/council/users/{id}', [CouncilController::class, 'updateUser'])->name('council.user.update');
     Route::post('/council/users/{id}/password-reset', [CouncilController::class, 'resetUserPassword'])->name('council.user.password.reset');
     Route::post('/council/users/{id}/deactivate', [CouncilController::class, 'deactivateUser'])->name('council.user.deactivate');
     Route::post('/council/users/{id}/assign-company', [CouncilController::class, 'assignCompany'])->name('council.user.assign-company');
     Route::get('/council/companies/{id}/edit', [CouncilController::class, 'editCompany'])->name('council.company.edit');
+    Route::get('/council/area/', [AreaController::class, 'index'])->name('index');
+    Route::get('/council/area/create', [AreaController::class, 'create'])->name('create');
+    Route::post('/', [AreaController::class, 'store'])->name('store');
+    Route::get('/council/area/{area}/edit', [AreaController::class, 'edit'])->name('edit');
+    Route::put('/{area}', [AreaController::class, 'update'])->name('update');
+    Route::delete('/{area}', [AreaController::class, 'destroy'])->name('destroy');
+
 });
 
 // Management routes
@@ -129,6 +181,30 @@ Route::prefix('management')->middleware(['auth', 'role:company_admin'])->group(f
         ->name('management.issues.update');
     Route::delete('/issues/{id}', [CollectionCompanyAdminController::class, 'deleteIssue'])
         ->name('management.issues.delete');
+
+
+Route::post('/assign/{pickupId}', [CollectionCompanyAdminController::class, 'assignCollector'])->name('management.assign');
+Route::post('/assign/{pickupId}', [CollectionCompanyAdminController::class, 'assignCollector'])->name('management.assign_pickup');
+
+    Route::post('/management/collectors/assign', [CollectionCompanyAdminController::class, 'assignResidentsToCollector'])
+        ->name('management.collectors.assign');
+
+Route::post('/collections/schedule', [CollectionCompanyAdminController::class, 'scheduleCollection'])
+    ->name('management.collections.schedule');
+
+
+    Route::get('/collector/residents', [CollectorController::class, 'myResidents'])
+        ->name('collector.residents');
+ Route::get('/collections/create', [CollectionCompanyAdminController::class, 'createCollection'])
+        ->name('management.collections.create');
+    // Store the new collection
+    Route::post('/collections', [CollectionCompanyAdminController::class, 'storeCollection'])
+        ->name('management.collections.store');
+    // Optionally, edit existing collection
+    Route::get('/collections/{id}/edit', [CollectionCompanyAdminController::class, 'editCollection'])
+        ->name('management.collections.edit');
+    Route::put('/collections/{id}', [CollectionCompanyAdminController::class, 'updateCollection'])
+        ->name('management.collections.update');
 
 
 

@@ -48,4 +48,16 @@ class CollectorCompany extends Model
         return $this->hasMany(User::class, 'collector_company_id')
                     ->whereIn('role', ['company_admin', 'collector']);
     }
+
+    public function areas()
+{
+    return $this->belongsToMany(Area::class, 'collector_company_areas', 'collector_company_id', 'area_id');
+}
+
+public function companyAdmin()
+{
+    return $this->hasOne(User::class, 'collector_company_id')
+                ->where('role', 'company_admin');
+}
+
 }
