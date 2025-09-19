@@ -32,6 +32,128 @@ class WasteManagementService
 {
 
 
+     public function getAllReports()
+    {
+        return Collection::whereHas('schedules', function ($query) {
+                $query->where('status', 'completed');
+            })
+            ->with(['resident', 'wasteType', 'schedules'])
+            ->get()
+            ->map(function ($pickup) {
+                $schedule = $pickup->schedules->first();
+                return [
+                    'pickup_id' => $pickup->id,
+                    'resident_name' => $pickup->resident->name ?? 'Unknown',
+                    'waste_type' => $pickup->wasteType->name ?? 'Unknown',
+                    'status' => $schedule ? $schedule->status : 'Unknown',
+                    'rating' => $pickup->rating,
+                    'feedback' => $pickup->feedback,
+                    'confirmed_by_collector' => $pickup->confirmed_by_collector,
+                    'confirmed_by_resident' => $pickup->confirmed_by_resident,
+                    'scheduled_date' => $schedule ? $schedule->scheduled_date : null,
+                ];
+            });
+    }
+
+    public function getAssignedPickups($collectorId = null)
+    {
+        $query = Collection::with(['resident', 'wasteType', 'schedules']);
+        if ($collectorId) {
+            $query->whereHas('schedules', function ($q) use ($collectorId) {
+                $q->where('assigned_collector_id', $collectorId);
+            });
+        }
+        return $query->whereHas('schedules', function ($q) {
+            $q->whereIn('status', ['pending', 'scheduled']);
+        })->get();
+    }
+
+    public function confirmCollectorPickup($pickupId, $collectorId)
+    {
+        $pickup = Collection::with('schedules')->findOrFail($pickupId);
+        $schedule = $pickup->schedules()->where('assigned_collector_id', $collectorId)->first();
+        if (!$schedule) {
+            throw new \Exception('Unauthorized');
+        }
+        $pickup->update(['confirmed_by_collector' => true]);
+        broadcast(new CollectionUpdated());
+    }
+
+    public function getReports($collectorCompanyId = null)
+    {
+        $query = Collection::whereHas('schedules', function ($query) {
+                $query->where('status', 'completed');
+            })
+            ->with(['resident', 'wasteType', 'schedules']);
+        if ($collectorCompanyId) {
+            $query->whereHas('resident', function ($q) use ($collectorCompanyId) {
+                $q->where('collector_company_id', $collectorCompanyId);
+            });
+        }
+        return $query->get()->map(function ($pickup) {
+            $schedule = $pickup->schedules->first();
+            return [
+                'pickup_id' => $pickup->id,
+                'resident_name' => $pickup->resident->name ?? 'Unknown',
+                'waste_type' => $pickup->wasteType->name ?? 'Unknown',
+                'status' => $schedule ? $schedule->status : 'Unknown',
+                'rating' => $pickup->rating,
+                'feedback' => $pickup->feedback,
+                'confirmed_by_collector' => $pickup->confirmed_by_collector,
+                'confirmed_by_resident' => $pickup->confirmed_by_resident,
+            ];
+        });
+    }
+
+    public function getPickups($councilId)
+    {
+        return Collection::whereHas('resident', function ($query) use ($councilId) {
+            $query->where('council_id', $councilId);
+        })
+            ->with(['resident', 'wasteType', 'schedules'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+    }
+
+    public function getScheduledPickups($councilId)
+    {
+        return Collection::whereHas('resident', function ($query) use ($councilId) {
+                $query->where('council_id', $councilId);
+            })
+            ->whereHas('schedules', function ($query) {
+                $query->where('status', 'scheduled');
+            })
+            ->with(['resident', 'wasteType', 'schedules'])
+            ->orderBy('collection_schedules.scheduled_date', 'asc')
+            ->join('collection_schedules', 'collections.id', '=', 'collection_schedules.collection_id')
+            ->get();
+    }
+
+    public function getCompletedPickups($councilId)
+    {
+        return Collection::whereHas('resident', function ($query) use ($councilId) {
+                $query->where('council_id', $councilId);
+            })
+            ->whereHas('schedules', function ($query) {
+                $query->where('status', 'completed');
+            })
+            ->with(['resident', 'wasteType', 'schedules'])
+            ->orderByDesc('collection_schedules.end_date')
+            ->join('collection_schedules', 'collections.id', '=', 'collection_schedules.collection_id')
+            ->get();
+    }
+
+
+
+  
+
+
+  
+
+  
+
+
+
 public function updateProfile($userId, array $data)
 {
     $user = \App\Models\User::findOrFail($userId);
@@ -259,44 +381,11 @@ public function logAction($action, $description, $userId, $entityType, $entityId
         \Illuminate\Support\Facades\Password::sendResetLink(['email' => $email]);
     }
 
-    public function getAllReports()
-    {
-        return Collection::where('status', 'completed')
-            ->with(['user', 'wasteType'])
-            ->get()
-            ->map(function ($pickup) {
-                return [
-                    'pickup_id' => $pickup->id,
-                    'resident_name' => $pickup->user->name ?? 'Unknown',
-                    'waste_type' => $pickup->wasteType->name ?? 'Unknown',
-                    'status' => $pickup->status,
-                    'rating' => $pickup->rating,
-                    'feedback' => $pickup->feedback,
-                    'confirmed_by_collector' => $pickup->confirmed_by_collector,
-                    'confirmed_by_resident' => $pickup->confirmed_by_resident,
-                    'scheduled_date' => $pickup->scheduled_date,
-                ];
-            });
-    }
+   
 
-    public function getAssignedPickups($collectorId = null)
-    {
-        $query = Collection::with(['user', 'wasteType']);
-        if ($collectorId) {
-            $query->where('collector_id', $collectorId);
-        }
-        return $query->whereIn('status', ['pending', 'scheduled'])->get();
-    }
+ 
 
-    public function confirmCollectorPickup($pickupId, $collectorId)
-    {
-        $pickup = Collection::findOrFail($pickupId);
-        if ($pickup->collector_id !== $collectorId) {
-            throw new \Exception('Unauthorized');
-        }
-        $pickup->update(['confirmed_by_collector' => true]);
-        broadcast(new CollectionUpdated());
-    }
+  
 
     public function reportIssue($userId, $councilId, $issueType, $description)
     {
@@ -325,25 +414,7 @@ public function logAction($action, $description, $userId, $entityType, $entityId
         return $query->get();
     }
 
-    public function getReports($collectorCompanyId = null)
-    {
-        $query = Collection::where('status', 'completed')->with(['user', 'wasteType']);
-        if ($collectorCompanyId) {
-            $query->where('collector_company_id', $collectorCompanyId);
-        }
-        return $query->get()->map(function ($pickup) {
-            return [
-                'pickup_id' => $pickup->id,
-                'resident_name' => $pickup->user->name ?? 'Unknown',
-                'waste_type' => $pickup->wasteType->name ?? 'Unknown',
-                'status' => $pickup->status,
-                'rating' => $pickup->rating,
-                'feedback' => $pickup->feedback,
-                'confirmed_by_collector' => $pickup->confirmed_by_collector,
-                'confirmed_by_resident' => $pickup->confirmed_by_resident,
-            ];
-        });
-    }
+  
 
     public function sendNotification($userId, $title, $body)
     {
@@ -376,35 +447,6 @@ public function logAction($action, $description, $userId, $entityType, $entityId
         broadcast(new CouncilRequestUpdated());
     }
 
-  
-
-   
-
-    public function getPickups($councilId)
-    {
-        return Collection::where('council_id',$councilId )
-            ->with(['user', 'wasteType'])
-            ->orderBy('created_at', 'desc')
-            ->get();
-    }
-
-    public function getScheduledPickups($councilId)
-    {
-        return Collection::where('status', 'scheduled')
-            ->where('council_id', $councilId)
-            ->with(['user', 'wasteType'])
-            ->orderBy('scheduled_date', 'asc')
-            ->get();
-    }
-
-    public function getCompletedPickups($councilId)
-    {
-        return Collection::where('status', 'completed')
-            ->where('council_id', $councilId)
-            ->with(['user', 'wasteType'])
-            ->orderBy('scheduled_date', 'desc')
-            ->get();
-    }
 
     public function getIssues($councilId)
     {

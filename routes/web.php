@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Auth;
 
 
 Auth::routes();
-Route::get('/test', fn() => view('test'))->name('test');
+
 
 // Shared map route for all roles
 Route::middleware(['auth'])->group(function () {
@@ -95,7 +95,7 @@ Route::prefix('council')->middleware(['auth', 'role:council_admin'])->group(func
 Route::get('/payments', [CouncilController::class, 'bills'])->name('council.payments');
     Route::post('/request/approve/{requestId}', [CouncilController::class, 'approveRequest'])->name('council.request.approve');
     Route::post('/request/reject/{requestId}', [CouncilController::class, 'rejectRequest'])->name('council.request.reject');
-    Route::post('/pickup/schedule/{pickupId}', [CouncilController::class, 'schedulePickup'])->name('council.pickup.schedule');
+    Route::post('/pickup/schedule/{pickupId}', [CouncilController::class, 'schedulePickup'])->name('council.schedule-pickup');
     Route::post('/issue/{issueId}/status', [CouncilController::class, 'updateIssueStatus'])->name('council.issue.status');
   Route::get('/users/create', [CouncilController::class, 'showCreateUserForm'])->name('council.user.create');
 Route::post('/users/create', [CouncilController::class, 'createUser']);
@@ -114,77 +114,30 @@ Route::post('/users/create', [CouncilController::class, 'createUser']);
 
 });
 
-// Management routes
 Route::prefix('management')->middleware(['auth', 'role:company_admin'])->group(function () {
     Route::get('/dashboard', [CollectionCompanyAdminController::class, 'index'])->name('management.dashboard');
+    Route::post('/collections/schedule', [CollectionCompanyAdminController::class, 'schedule'])->name('management.collections.schedule');
+    Route::post('/collectors/assign', [CollectionCompanyAdminController::class, 'assignResidentsToCollector'])->name('management.collectors.assign');
+    Route::get('/collections/create', [CollectionCompanyAdminController::class, 'createCollection'])->name('management.collections.create');
+    Route::post('/collections', [CollectionCompanyAdminController::class, 'storeCollection'])->name('management.collections.store');
+    Route::get('/collections/{id}/edit', [CollectionCompanyAdminController::class, 'editCollection'])->name('management.collections.edit');
+    Route::put('/collections/{id}', [CollectionCompanyAdminController::class, 'updateCollection'])->name('management.collections.update');
+    Route::put('/collection_schedules/{collection_schedule}', [CollectionCompanyAdminController::class, 'updateSchedule'])->name('management.collection_schedules.update');
+    Route::get('/collection_schedules/{id}/edit', [CollectionScheduleController::class, 'edit'])->name('management.collection_schedules.edit');
     Route::post('/assign/{pickupId}', [CollectionCompanyAdminController::class, 'assignCollector'])->name('management.assign');
     Route::post('/message/{residentId}', [CollectionCompanyAdminController::class, 'sendResidentMessage'])->name('management.message');
     Route::get('/residents', [CollectionCompanyAdminController::class, 'residents'])->name('management.residents');
-
-    // Reports
+    Route::post('/residents/{residentId}/message', [CollectionCompanyAdminController::class, 'sendResidentMessage'])->name('management.residents.message');
     Route::get('/reports', [CollectionCompanyAdminController::class, 'reports'])->name('management.reports');
-   
-   // Route::get('/collectors', [CollectionCompanyAdminController::class, 'collectors'])->name('management.collectors');
- 
-
-
-    Route::post('/residents/{residentId}/message', [CollectionCompanyAdminController::class, 'sendResidentMessage'])
-        ->name('management.residents.message');
-
-
-
     Route::get('/issues', [CollectionCompanyAdminController::class, 'issues'])->name('management.issues');
- 
-
-
-     // Collectors
-    Route::get('/collectors', [CollectionCompanyAdminController::class, 'collectors'])
-        ->name('management.collectors');
-    Route::post('/collectors', [CollectionCompanyAdminController::class, 'storeCollector'])
-        ->name('management.collectors.store');
-    Route::put('/collectors/{id}', [CollectionCompanyAdminController::class, 'updateCollector'])
-        ->name('management.collectors.update');
-    Route::post('/collectors/{id}/deactivate', [CollectionCompanyAdminController::class, 'deactivateCollector'])
-        ->name('management.collectors.deactivate');
-    Route::post('/collectors/{id}/activate', [CollectionCompanyAdminController::class, 'activateCollector'])
-        ->name('management.collectors.activate');
-
-    // Issues
-    Route::get('/issues', [CollectionCompanyAdminController::class, 'issues'])
-        ->name('management.issues');
-    Route::post('/issues', [CollectionCompanyAdminController::class, 'storeIssue'])
-        ->name('management.issues.store');
-    Route::put('/issues/{id}', [CollectionCompanyAdminController::class, 'updateIssue'])
-        ->name('management.issues.update');
-    Route::delete('/issues/{id}', [CollectionCompanyAdminController::class, 'deleteIssue'])
-        ->name('management.issues.delete');
-
-
-Route::post('/assign/{pickupId}', [CollectionCompanyAdminController::class, 'assignCollector'])->name('management.assign');
-Route::post('/assign/{pickupId}', [CollectionCompanyAdminController::class, 'assignCollector'])->name('management.assign_pickup');
-
-    Route::post('/management/collectors/assign', [CollectionCompanyAdminController::class, 'assignResidentsToCollector'])
-        ->name('management.collectors.assign');
-
-Route::post('/collections/schedule', [CollectionCompanyAdminController::class, 'scheduleCollection'])
-    ->name('management.collections.schedule');
-
-
-    Route::get('/collector/residents', [CollectorController::class, 'myResidents'])
-        ->name('collector.residents');
- Route::get('/collections/create', [CollectionCompanyAdminController::class, 'createCollection'])
-        ->name('management.collections.create');
-    // Store the new collection
-    Route::post('/collections', [CollectionCompanyAdminController::class, 'storeCollection'])
-        ->name('management.collections.store');
-    // Optionally, edit existing collection
-    Route::get('/collections/{id}/edit', [CollectionCompanyAdminController::class, 'editCollection'])
-        ->name('management.collections.edit');
-    Route::put('/collections/{id}', [CollectionCompanyAdminController::class, 'updateCollection'])
-        ->name('management.collections.update');
-
-
-
+    Route::post('/issues', [CollectionCompanyAdminController::class, 'storeIssue'])->name('management.issues.store');
+    Route::put('/issues/{id}', [CollectionCompanyAdminController::class, 'updateIssue'])->name('management.issues.update');
+    Route::delete('/issues/{id}', [CollectionCompanyAdminController::class, 'deleteIssue'])->name('management.issues.delete');
+    Route::get('/collectors', [CollectionCompanyAdminController::class, 'collectors'])->name('management.collectors');
+    Route::post('/collectors', [CollectionCompanyAdminController::class, 'storeCollector'])->name('management.collectors.store');
+    Route::put('/collectors/{id}', [CollectionCompanyAdminController::class, 'updateCollector'])->name('management.collectors.update');
+    Route::post('/collectors/{id}/deactivate', [CollectionCompanyAdminController::class, 'deactivateCollector'])->name('management.collectors.deactivate');
+    Route::post('/collectors/{id}/activate', [CollectionCompanyAdminController::class, 'activateCollector'])->name('management.collectors.activate');
 });
 
 // Collector routes

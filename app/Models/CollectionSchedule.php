@@ -13,6 +13,11 @@ class CollectionSchedule extends Model
         'assigned_collector_id',
         'assigned_by_admin_id',
         'status',
+        'schedule_type',
+        'recurring_day',
+        'monthly_day',
+        'start_date',
+        'end_date',
         'notes',
     ];
 

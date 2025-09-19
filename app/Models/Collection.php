@@ -6,50 +6,49 @@ use Illuminate\Database\Eloquent\Model;
 
 class Collection extends Model
 {
-    protected $table = 'collections';
-    public $timestamps = true;
-
     protected $fillable = [
-        'user_id', 'council_id', 'collector_company_id', 'waste_type', 'status',
-        'collector_id', 'scheduled_date', 'rating', 'feedback',
-        'confirmed_by_collector', 'confirmed_by_resident',
+        'resident_id',
+        'waste_type_id',
+        'collector_company_id',
+        'area_id',
+        'quantity',
+        'priority',
+        'notes',
+        'feedback_rating',
+        'feedback_text',
+        'confirmed_by_collector',
+        'confirmed_by_resident',
     ];
 
-    protected $casts = [
-        'confirmed_by_collector' => 'boolean',
-        'confirmed_by_resident' => 'boolean',
-        'scheduled_date' => 'datetime',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
-    ];
+    public function resident()
+    {
+        return $this->belongsTo(User::class, 'resident_id');
+    }
 
-  public function user()
-{
-    return $this->belongsTo(User::class, 'user_id', 'id');
-}
+    public function schedules()
+    {
+        return $this->hasMany(CollectionSchedule::class);
+    }
 
-public function collector()
-{
-    return $this->belongsTo(User::class, 'collector_id', 'id');
-}
-
+    public function wasteType()
+    {
+        return $this->belongsTo(WasteType::class);
+    }
 
     public function collectorCompany()
     {
         return $this->belongsTo(CollectorCompany::class);
     }
 
-    public function council()
-    {
-        return $this->belongsTo(Council::class);
-    }
 
-    public function wasteType()
-    {
-        return $this->belongsTo(WasteType::class, 'waste_type');
-    }
-    public function schedules()
+public function collector()
 {
-    return $this->hasMany(CollectionSchedule::class, 'collection_id');
+    return $this->belongsTo(User::class, 'assigned_collector_id');
 }
+
+
+    public function area()
+    {
+        return $this->belongsTo(Area::class);
+    }
 }

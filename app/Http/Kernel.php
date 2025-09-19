@@ -45,6 +45,11 @@ class Kernel extends HttpKernel
         'role' => \App\Http\Middleware\RoleMiddleware::class, // Add this line
     ];
 
+    protected function schedule(Schedule $schedule)
+    {
+        $schedule->job(new \App\Jobs\GenerateRecurringSchedules)->dailyAt('00:00');
+    }
+
          protected $commands = [
          \App\Console\Commands\ScheduleCollections::class,
      ];

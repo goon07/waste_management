@@ -9,9 +9,9 @@ use App\Models\CouncilRequest;
 use App\Models\Collection;
 use App\Models\Council;
 use App\Models\Area;
-
 use App\Models\Issue;
 use App\Models\Payment;
+use App\Models\UserBill;
 use App\Services\WasteManagementService;
 use App\Services\ReportService;
 use Illuminate\Http\Request;
@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Str;
-use Illuminate\Routing\Controller; // Add this import
+use Illuminate\Routing\Controller;
 
 class CouncilController extends Controller
 {
@@ -34,354 +34,87 @@ class CouncilController extends Controller
     }
 
 
-public function index()
-{
-    $councilId = Auth::user()->council_id;
+ public function index()
+    {
+        $councilId = Auth::user()->council_id;
 
-    // Count residents (users with role 'resident' in this council)
-    $residentCount = User::where('council_id', $councilId)
-        ->where('role', 'resident')
-        ->count();
+        // Count residents (users with role 'resident' in this council)
+        $residentCount = User::where('council_id', $councilId)
+            ->where('role', 'resident')
+            ->count();
 
+        // Residents who have paid
+        $paidCount = User::where('council_id', $councilId)
+            ->where('role', 'resident')
+            ->where('payment_status', 'paid')
+            ->count();
 
-          // Residents who have paid
-    $paidCount = User::where('council_id', $councilId)
-        ->where('role', 'resident')
-        ->where('payment_status', 'paid')
-        ->count();
-    // Residents who have not paid
-    $unpaidCount = User::where('council_id', $councilId)
-        ->where('role', 'resident')
-        ->where('payment_status', 'pending')
-        ->count();
-    // Issues summary by status
-    $issuesSummary = Issue::select('status', DB::raw('count(*) as total'))
-        ->where('council_id', $councilId)
-        ->groupBy('status')
-        ->pluck('total', 'status')
-        ->toArray();
+        // Residents who have not paid
+        $unpaidCount = User::where('council_id', $councilId)
+            ->where('role', 'resident')
+            ->where('payment_status', 'pending')
+            ->count();
 
-    // Pickups summary: last completed pickup and next scheduled pickup
-    $lastPickup = Collection::where('council_id', $councilId)
-        ->where('status', 'completed')
-        ->orderBy('completed_date', 'desc')
-        ->first();
+        // Issues summary by status
+        $issuesSummary = Issue::select('status', DB::raw('count(*) as total'))
+            ->where('council_id', $councilId)
+            ->groupBy('status')
+            ->pluck('total', 'status')
+            ->toArray();
 
-    $nextPickup = Collection::where('council_id', $councilId)
-        ->where('status', 'scheduled')
-        ->where('scheduled_date', '>', now())
-        ->orderBy('scheduled_date', 'asc')
-        ->first();
+        // Last completed pickup
+        $lastPickup = Collection::whereHas('resident', function ($query) use ($councilId) {
+                $query->where('council_id', $councilId);
+            })
+            ->whereHas('schedules', function ($query) {
+                $query->where('status', 'completed');
+            })
+            ->with(['wasteType', 'resident', 'schedules'])
+            ->orderByDesc('collection_schedules.end_date')
+            ->join('collection_schedules', 'collections.id', '=', 'collection_schedules.collection_id')
+            ->first();
+
+        // Next scheduled pickup
+        $nextPickup = Collection::whereHas('resident', function ($query) use ($councilId) {
+                $query->where('council_id', $councilId);
+            })
+            ->whereHas('schedules', function ($query) {
+                $query->where('status', 'scheduled')
+                      ->where('scheduled_date', '>', now());
+            })
+            ->with(['wasteType', 'resident', 'schedules'])
+            ->orderBy('collection_schedules.scheduled_date', 'asc')
+            ->join('collection_schedules', 'collections.id', '=', 'collection_schedules.collection_id')
+            ->first();
+
+          $collections = Collection::whereHas('resident', function ($query) use ($councilId) {
+    $query->where('council_id', $councilId);
+})
+->with(['resident.residency.area', 'collector', 'wasteType'])
+->paginate(10);
 
     return view('council.dashboard', compact(
-        'residentCount', 'issuesSummary', 'lastPickup', 'nextPickup','paidCount','unpaidCount'
+        'residentCount', 'issuesSummary', 'lastPickup', 'nextPickup', 'paidCount', 'unpaidCount', 'collections'
     ));
-}
 
-
-
-public function assignCollectorCompanyToArea(Request $request)
-{
-    $request->validate([
-        'collector_company_id' => 'required|exists:collector_companies,id',
-        'area_id' => 'required|exists:areas,id',
-    ]);
-
-    $councilId = Auth::user()->council_id;
-
-    // Verify area belongs to council
-    $area = Area::where('id', $request->area_id)->where('council_id', $councilId)->first();
-    if (!$area) {
-        return redirect()->back()->with('error', 'Selected area does not belong to your council.');
+       
     }
 
-    // Verify company assigned to council
-    $companyAssigned = DB::table('council_collector_companies')
-        ->where('council_id', $councilId)
-        ->where('collector_company_id', $request->collector_company_id)
-        ->exists();
 
-    if (!$companyAssigned) {
-        return redirect()->back()->with('error', 'Collector company is not assigned to your council.');
-    }
-
-    // Insert or update assignment in collector_company_areas
-    DB::table('collector_company_areas')->updateOrInsert(
-        ['collector_company_id' => $request->collector_company_id],
-        ['area_id' => $request->area_id, 'created_at' => now()]
-    );
-
-    return redirect()->route('council.collectors')->with('success', 'Area assigned to collector company successfully.');
-}
-
-
-// Show form to create a collector (direct or company)
-public function showCreateCollectorForm()
-{
-    $councilId = Auth::user()->council_id;
-    $council = Council::findOrFail($councilId);
-
-    $collectorCompanies = [];
-    if (!$council->employs_collectors) {
-        // Only load companies if council contracts companies
-        $collectorCompanyIds = DB::table('council_collector_companies')
-            ->where('council_id', $councilId)
-            ->pluck('collector_company_id');
-        $collectorCompanies = CollectorCompany::whereIn('id', $collectorCompanyIds)->get();
-    }
-
-    return view('council.collectors-create', compact('collectorCompanies', 'council'));
-}
-
-// Show form to edit a collector
-public function editCollector($id)
-{
-    $collector = User::where('role', 'collector')->findOrFail($id);
-
-    if ($collector->council_id !== Auth::user()->council_id) {
-        abort(403, 'Unauthorized');
-    }
-
-    $council = Council::findOrFail(Auth::user()->council_id);
-
-    $collectorCompanies = [];
-    if (!$council->employs_collectors) {
-        $collectorCompanyIds = DB::table('council_collector_companies')
-            ->where('council_id', $council->id)
-            ->pluck('collector_company_id');
-        $collectorCompanies = CollectorCompany::whereIn('id', $collectorCompanyIds)->get();
-    }
-
-    return view('council.collectors-edit', compact('collector', 'collectorCompanies', 'council'));
-}
-
-// Store new collector
-public function storeCollector(Request $request)
-{
-    $councilId = Auth::user()->council_id;
-    $council = Council::findOrFail($councilId);
-
-    $rules = [
-        'name' => 'required|string|max:255',
-        'email' => 'required|email|unique:users,email',
-        'password' => 'required|string|min:6|confirmed',
-    ];
-
-    if (!$council->employs_collectors) {
-        $rules['collector_company_id'] = 'required|exists:collector_companies,id';
-    }
-
-    $validated = $request->validate($rules);
-
-    $collectorData = [
-        'name' => $validated['name'],
-        'email' => $validated['email'],
-        'role' => 'company_admin',
-        'password' => bcrypt($validated['password']),
-        'council_id' => $councilId,
-        'is_active' => true,
-    ];
-
-    if (!$council->employs_collectors) {
-        $collectorData['collector_company_id'] = $validated['collector_company_id'];
-    }
-
-    User::create($collectorData);
-
-    return redirect()->route('council.collectors')->with('success', 'Collector created successfully.');
-}
-
-
-
-public function storeCompanyAdmin(Request $request)
-{
-    $rules = [
-        'name' => 'required|string|max:255',
-        'email' => 'required|email|unique:users,email',
-        'password' => 'required|string|min:6|confirmed',
-        'collector_company_id' => 'required|exists:collector_companies,id',
-    ];
-
-    $validated = $request->validate($rules);
-
-    $adminData = [
-         'id' => (string) Str::uuid(), 
-        'name' => $validated['name'],
-        'email' => $validated['email'],
-        'role' => 'company_admin',
-        'password' => bcrypt($validated['password']),
-        'collector_company_id' => $validated['collector_company_id'],
-        'is_active' => true,
-    ];
-
-   try {
-    User::create($adminData);
-     DB::commit();
-} catch (\Exception $e) {
-    \Log::error('Failed to create company admin: ' . $e->getMessage());
-    return redirect()->back()->withErrors('Failed to create company admin.');
-}
-
-
-   return redirect()->route('council.collectors')->with('success', 'Collector created successfully.');
-}
-
-
-// Show edit form for a pickup
-public function editPickup($id)
-{
-    $pickup = Collection::findOrFail($id);
-
-    if ($pickup->council_id !== Auth::user()->council_id) {
-        abort(403, 'Unauthorized');
-    }
-
-    $collectors = $this->wasteManagementService->getCollectors();
-
-    return view('council.pickup-edit', compact('pickup', 'collectors'));
-}
-
-// Cancel a scheduled pickup
-public function cancelPickup(Request $request, $id)
-{
-    $pickup = Collection::findOrFail($id);
-
-    if ($pickup->council_id !== Auth::user()->council_id) {
-        abort(403, 'Unauthorized');
-    }
-
-    // Only allow cancel if status is scheduled
-    if ($pickup->status !== 'scheduled') {
-        return redirect()->back()->with('error', 'Only scheduled pickups can be cancelled.');
-    }
-
-    $pickup->update([
-        'status' => 'pending',
-        'scheduled_date' => null,
-        'collector_id' => null,
-    ]);
-
-    // Optionally notify user and log action here
-
-    return redirect()->route('council.pickups')->with('success', 'Pickup cancelled successfully.');
-}
-
-
-public function resetCompanyAdminPassword($id)
-{
-    $admin = User::where('id', $id)->where('role', 'company_admin')->firstOrFail();
-
-    // Optional: check council ownership if needed
-
-    // Generate a new random password or set a default one
-    $newPassword = Str::random(10);
-
-    $admin->password = bcrypt($newPassword);
-    $admin->save();
-
-    // Optionally, notify the admin via email about the new password
-
-    return redirect()->back()->with('success', "Password reset successfully. New password: $newPassword");
-}
-
-
-// Update existing collector
-public function updateCollector(Request $request, $id)
-{
-    $collector = User::where('role', 'collector')->findOrFail($id);
-
-    if ($collector->council_id !== Auth::user()->council_id) {
-        abort(403, 'Unauthorized');
-    }
-
-    $council = Council::findOrFail(Auth::user()->council_id);
-
-    $rules = [
-        'name' => 'required|string|max:255',
-        'email' => 'required|email|unique:users,email,' . $collector->id,
-    ];
-
-    if (!$council->employs_collectors) {
-        $rules['collector_company_id'] = 'required|exists:collector_companies,id';
-    }
-
-    $validated = $request->validate($rules);
-
-    $collector->name = $validated['name'];
-    $collector->email = $validated['email'];
-
-    if (!$council->employs_collectors) {
-        $collector->collector_company_id = $validated['collector_company_id'];
-    } else {
-        $collector->collector_company_id = null;
-    }
-
-    $collector->save();
-
-    return redirect()->route('council.collectors')->with('success', 'Collector updated successfully.');
-}
-
-// Activate/deactivate collector
-public function deactivateCollector($id)
-{
-    $collector = User::where('role', 'collector')->findOrFail($id);
-
-    if ($collector->council_id !== Auth::user()->council_id) {
-        abort(403, 'Unauthorized');
-    }
-
-    $collector->is_active = !$collector->is_active;
-    $collector->save();
-
-    return redirect()->route('council.collectors')->with('success', 'Collector status updated.');
-}
-
-// Store new collector company
-public function storeCompany(Request $request)
-{
-    $request->validate([
-        'name' => 'required|string|max:255|unique:collector_companies,name',
-    ]);
-
-    CollectorCompany::create(['name' => $request->name]);
-
-    return redirect()->route('council.collectors')->with('success', 'Collector company created.');
-}
-
-// Update existing collector company
-public function updateCompany(Request $request, $id)
-{
-    $company = CollectorCompany::findOrFail($id);
-
-    $request->validate([
-        'name' => 'required|string|max:255|unique:collector_companies,name,' . $company->id,
-    ]);
-
-    $company->update(['name' => $request->name]);
-
-    return redirect()->route('council.collectors')->with('success', 'Collector company updated.');
-}
-
-// Show form to edit collector company
-public function editCompany($id)
-{
-    $company = CollectorCompany::findOrFail($id);
-
-    // Optional: verify company belongs to council here
-
-    return view('council.companies-edit', compact('company'));
-}
 
 
     public function pickups(Request $request)
     {
         try {
-            $query = Collection::where('council_id', Auth::user()->council_id)
-                ->with(['user', 'collector']);
+            $query = Collection::whereHas('resident', function ($query) use ($request) {
+                $query->where('council_id', Auth::user()->council_id);
+            })
+                ->with(['resident', 'collector', 'wasteType', 'schedules']);
 
-            // Filtering
             if ($request->filled('status')) {
-                $query->where('status', $request->status);
+                $query->whereHas('schedules', function ($q) use ($request) {
+                    $q->where('status', $request->status);
+                });
             }
 
             if ($request->filled('waste_type_id')) {
@@ -389,33 +122,39 @@ public function editCompany($id)
             }
 
             if ($request->filled('collector_id')) {
-                $query->where('collector_id', $request->collector_id);
+                $query->whereHas('schedules', function ($q) use ($request) {
+                    $q->where('assigned_collector_id', $request->collector_id);
+                });
             }
 
             if ($request->filled('date_range')) {
                 [$start, $end] = explode(' to ', $request->date_range);
-                $query->where(function ($q) use ($start, $end) {
-                    $q->whereBetween('scheduled_date', [$start, $end])
-                      ->orWhereBetween('created_at', [$start, $end]);
+                $query->whereHas('schedules', function ($q) use ($start, $end) {
+                    $q->whereBetween('scheduled_date', [$start, $end]);
+                })->orWhere(function ($q) use ($start, $end) {
+                    $q->whereBetween('created_at', [$start, $end])
+                      ->whereHas('schedules', function ($s) {
+                          $s->where('status', 'pending');
+                      });
                 });
             }
 
-            // Sorting
             $sort = $request->input('sort', 'created_at');
             $direction = $request->input('direction', 'desc');
-            if ($sort == 'user_name') {
-                $query->join('users', 'collections.user_id', '=', 'users.id')
+            if ($sort == 'resident_name') {
+                $query->join('users', 'collections.resident_id', '=', 'users.id')
                       ->orderBy('users.name', $direction);
             } elseif ($sort == 'collector_name') {
-                $query->leftJoin('users as collectors', 'collections.collector_id', '=', 'collectors.id')
+                $query->leftJoin('collection_schedules', 'collections.id', '=', 'collection_schedules.collection_id')
+                      ->leftJoin('users as collectors', 'collection_schedules.assigned_collector_id', '=', 'collectors.id')
                       ->orderBy('collectors.name', $direction);
             } else {
-                $query->orderBy($sort, $direction);
+                $query->leftJoin('collection_schedules', 'collections.id', '=', 'collection_schedules.collection_id')
+                      ->orderBy('collection_schedules.' . $sort, $direction);
             }
 
             $pickups = $query->paginate(20);
             $collectors = $this->wasteManagementService->getCollectors();
-       //     $wasteTypes = WasteType::all();
 
             return view('council.pickups', compact('pickups', 'collectors'));
         } catch (\Exception $e) {
@@ -426,6 +165,328 @@ public function editCompany($id)
             return redirect()->back()->with('error', 'Failed to load pickups: ' . $e->getMessage());
         }
     }
+
+    public function editPickup($id)
+    {
+        $pickup = Collection::with(['resident', 'wasteType', 'schedules'])->findOrFail($id);
+
+        if (!$pickup->resident || $pickup->resident->council_id !== Auth::user()->council_id) {
+            abort(403, 'Unauthorized');
+        }
+
+        $collectors = $this->wasteManagementService->getCollectors();
+
+        return view('council.pickup-edit', compact('pickup', 'collectors'));
+    }
+
+    public function cancelPickup(Request $request, $id)
+    {
+        $pickup = Collection::with(['resident', 'schedules'])->findOrFail($id);
+
+        if (!$pickup->resident || $pickup->resident->council_id !== Auth::user()->council_id) {
+            abort(403, 'Unauthorized');
+        }
+
+        $schedule = $pickup->schedules()->where('status', 'scheduled')->first();
+        if (!$schedule) {
+            return redirect()->back()->with('error', 'No scheduled pickup found to cancel.');
+        }
+
+        $schedule->update([
+            'status' => 'pending',
+            'scheduled_date' => null,
+            'assigned_collector_id' => null,
+        ]);
+
+        return redirect()->route('council.pickups')->with('success', 'Pickup cancelled successfully.');
+    }
+
+    public function schedulePickup(Request $request, $pickupId)
+    {
+        $request->validate([
+            'collector_id' => 'required|uuid|exists:users,id',
+            'scheduled_date' => 'required|date|after:today',
+        ]);
+
+        try {
+            $pickup = Collection::with('resident')->findOrFail($pickupId);
+            if (!$pickup->resident || $pickup->resident->council_id !== Auth::user()->council_id) {
+                throw new \Exception('Unauthorized: Pickup does not belong to your council');
+            }
+
+            $pickup->schedules()->updateOrCreate(
+                ['collection_id' => $pickup->id],
+                [
+                    'assigned_collector_id' => $request->collector_id,
+                    'scheduled_date' => $request->scheduled_date,
+                    'status' => 'scheduled',
+                    'updated_at' => now(),
+                ]
+            );
+
+            broadcast(new \App\Events\CollectionUpdated());
+
+            $this->wasteManagementService->sendNotification(
+                $pickup->resident_id,
+                'Pickup Scheduled',
+                "Your {$pickup->wasteType->name} pickup is scheduled for " . \Carbon\Carbon::parse($request->scheduled_date)->toDateString()
+            );
+
+            $this->wasteManagementService->logAction(
+                'schedule_pickup',
+                "Council admin scheduled pickup {$pickupId} with collector {$request->collector_id}",
+                Auth::id(),
+                'collection',
+                $pickupId
+            );
+
+            return redirect()->route('council.pending-pickups')->with('success', 'Pickup scheduled successfully.');
+        } catch (\Exception $e) {
+            Log::error('CouncilController: Error scheduling pickup', [
+                'error' => $e->getMessage(),
+                'pickup_id' => $pickupId,
+                'user_id' => Auth::id(),
+            ]);
+            return redirect()->back()->with('error', $e->getMessage());
+        }
+    }
+
+   
+   
+
+  
+
+    public function assignCollectorCompanyToArea(Request $request)
+    {
+        $request->validate([
+            'collector_company_id' => 'required|exists:collector_companies,id',
+            'area_id' => 'required|exists:areas,id',
+        ]);
+
+        $councilId = Auth::user()->council_id;
+
+        // Verify area belongs to council
+        $area = Area::where('id', $request->area_id)->where('council_id', $councilId)->first();
+        if (!$area) {
+            return redirect()->back()->with('error', 'Selected area does not belong to your council.');
+        }
+
+        // Verify company assigned to council
+        $companyAssigned = DB::table('council_collector_companies')
+            ->where('council_id', $councilId)
+            ->where('collector_company_id', $request->collector_company_id)
+            ->exists();
+
+        if (!$companyAssigned) {
+            return redirect()->back()->with('error', 'Collector company is not assigned to your council.');
+        }
+
+        // Insert or update assignment in collector_company_areas
+        DB::table('collector_company_areas')->updateOrInsert(
+            ['collector_company_id' => $request->collector_company_id, 'area_id' => $request->area_id],
+            ['created_at' => now()]
+        );
+
+        return redirect()->route('council.collectors')->with('success', 'Area assigned to collector company successfully.');
+    }
+
+    public function showCreateCollectorForm()
+    {
+        $councilId = Auth::user()->council_id;
+        $council = Council::findOrFail($councilId);
+
+        $collectorCompanies = [];
+        if (!$council->employs_collectors) {
+            $collectorCompanyIds = DB::table('council_collector_companies')
+                ->where('council_id', $councilId)
+                ->pluck('collector_company_id');
+            $collectorCompanies = CollectorCompany::whereIn('id', $collectorCompanyIds)->get();
+        }
+
+        return view('council.collectors-create', compact('collectorCompanies', 'council'));
+    }
+
+    public function editCollector($id)
+    {
+        $collector = User::where('role', 'collector')->findOrFail($id);
+
+        if ($collector->council_id !== Auth::user()->council_id) {
+            abort(403, 'Unauthorized');
+        }
+
+        $council = Council::findOrFail(Auth::user()->council_id);
+
+        $collectorCompanies = [];
+        if (!$council->employs_collectors) {
+            $collectorCompanyIds = DB::table('council_collector_companies')
+                ->where('council_id', $council->id)
+                ->pluck('collector_company_id');
+            $collectorCompanies = CollectorCompany::whereIn('id', $collectorCompanyIds)->get();
+        }
+
+        return view('council.collectors-edit', compact('collector', 'collectorCompanies', 'council'));
+    }
+
+    public function storeCollector(Request $request)
+    {
+        $councilId = Auth::user()->council_id;
+        $council = Council::findOrFail($councilId);
+
+        $rules = [
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|string|min:6|confirmed',
+        ];
+
+        if (!$council->employs_collectors) {
+            $rules['collector_company_id'] = 'required|exists:collector_companies,id';
+        }
+
+        $validated = $request->validate($rules);
+
+        $collectorData = [
+            'id' => (string) Str::uuid(),
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'role' => 'collector',
+            'password' => bcrypt($validated['password']),
+            'council_id' => $councilId,
+            'is_active' => true,
+        ];
+
+        if (!$council->employs_collectors) {
+            $collectorData['collector_company_id'] = $validated['collector_company_id'];
+        }
+
+        User::create($collectorData);
+
+        return redirect()->route('council.collectors')->with('success', 'Collector created successfully.');
+    }
+
+    public function storeCompanyAdmin(Request $request)
+    {
+        $rules = [
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|string|min:6|confirmed',
+            'collector_company_id' => 'required|exists:collector_companies,id',
+        ];
+
+        $validated = $request->validate($rules);
+
+        $adminData = [
+            'id' => (string) Str::uuid(),
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'role' => 'company_admin',
+            'password' => bcrypt($validated['password']),
+            'collector_company_id' => $validated['collector_company_id'],
+            'is_active' => true,
+        ];
+
+        try {
+            User::create($adminData);
+            return redirect()->route('council.collectors')->with('success', 'Company admin created successfully.');
+        } catch (\Exception $e) {
+            Log::error('Failed to create company admin: ' . $e->getMessage());
+            return redirect()->back()->withErrors('Failed to create company admin.');
+        }
+    }
+
+
+
+
+
+    public function resetCompanyAdminPassword($id)
+    {
+        $admin = User::where('id', $id)->where('role', 'company_admin')->firstOrFail();
+
+        $newPassword = Str::random(10);
+        $admin->password = bcrypt($newPassword);
+        $admin->save();
+
+        return redirect()->back()->with('success', "Password reset successfully. New password: $newPassword");
+    }
+
+    public function updateCollector(Request $request, $id)
+    {
+        $collector = User::where('role', 'collector')->findOrFail($id);
+
+        if ($collector->council_id !== Auth::user()->council_id) {
+            abort(403, 'Unauthorized');
+        }
+
+        $council = Council::findOrFail(Auth::user()->council_id);
+
+        $rules = [
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email,' . $collector->id,
+        ];
+
+        if (!$council->employs_collectors) {
+            $rules['collector_company_id'] = 'required|exists:collector_companies,id';
+        }
+
+        $validated = $request->validate($rules);
+
+        $collector->name = $validated['name'];
+        $collector->email = $validated['email'];
+
+        if (!$council->employs_collectors) {
+            $collector->collector_company_id = $validated['collector_company_id'];
+        } else {
+            $collector->collector_company_id = null;
+        }
+
+        $collector->save();
+
+        return redirect()->route('council.collectors')->with('success', 'Collector updated successfully.');
+    }
+
+    public function deactivateCollector($id)
+    {
+        $collector = User::where('role', 'collector')->findOrFail($id);
+
+        if ($collector->council_id !== Auth::user()->council_id) {
+            abort(403, 'Unauthorized');
+        }
+
+        $collector->is_active = !$collector->is_active;
+        $collector->save();
+
+        return redirect()->route('council.collectors')->with('success', 'Collector status updated.');
+    }
+
+    public function storeCompany(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255|unique:collector_companies,name',
+        ]);
+
+        CollectorCompany::create(['name' => $request->name]);
+
+        return redirect()->route('council.collectors')->with('success', 'Collector company created.');
+    }
+
+    public function updateCompany(Request $request, $id)
+    {
+        $company = CollectorCompany::findOrFail($id);
+
+        $request->validate([
+            'name' => 'required|string|max:255|unique:collector_companies,name,' . $company->id,
+        ]);
+
+        $company->update(['name' => $request->name]);
+
+        return redirect()->route('council.collectors')->with('success', 'Collector company updated.');
+    }
+
+    public function editCompany($id)
+    {
+        $company = CollectorCompany::findOrFail($id);
+        return view('council.companies-edit', compact('company'));
+    }
+
 
     public function exportPickups(Request $request)
     {
@@ -440,282 +501,197 @@ public function editCompany($id)
         }
     }
 
-
-    public function dashboard()
+    public function users()
     {
         try {
-            $pendingPickups = $this->wasteManagementService->getPickups(Auth::user()->council_id)->load('wasteType');
+            $councilId = Auth::user()->council_id;
+            $requests = $this->wasteManagementService->getUserRequests($councilId);
+            $collectorCompanies = $this->wasteManagementService->getCollectorCompanies()
+                ->filter(function ($company) use ($councilId) {
+                    return DB::table('council_collector_companies')
+                        ->where('council_id', $councilId)
+                        ->where('collector_company_id', $company->id)
+                        ->exists();
+                });
+
+            $residents = $this->wasteManagementService->getResidents()
+                ->filter(function ($resident) use ($councilId) {
+                    return Residency::where('user_id', $resident->id)
+                        ->where('council_id', $councilId)
+                        ->exists();
+                })
+                ->map(function ($resident) {
+                    $residency = Residency::where('user_id', $resident->id)->first();
+                    $areaName = $residency && $residency->area ? $residency->area->name : null;
+                    return [
+                        'id' => $resident->id,
+                        'name' => $resident->name,
+                        'email' => $resident->email,
+                        'address' => $residency->billing_address ?? $resident->address,
+                        'payment_status' => $resident->payment_status,
+                        'user_status' => $resident->user_status,
+                        'area_name' => $areaName,
+                    ];
+                });
+
             $collectors = $this->wasteManagementService->getCollectors();
-            return view('council.dashboard', compact('pendingPickups', 'collectors'));
+            return view('council.users', compact('requests', 'collectorCompanies', 'residents', 'collectors'));
         } catch (\Exception $e) {
-            Log::error('CouncilController: Error loading dashboard', [
+            Log::error('CouncilController: Error loading users', [
                 'error' => $e->getMessage(),
                 'user_id' => Auth::id(),
             ]);
-            return redirect()->back()->with('error', 'Failed to load dashboard: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to load users: ' . $e->getMessage());
         }
     }
 
-   public function users()
-{
-    try {
-        $requests = $this->wasteManagementService->getUserRequests(Auth::user()->council_id);
-        $collectorCompanies = $this->wasteManagementService->getCollectorCompanies()
-            ->filter(function ($company) {
-                return DB::table('council_collector_companies')
-                    ->where('council_id', Auth::user()->council_id)
-                    ->where('collector_company_id', $company->id)
-                    ->exists();
-            });
-    /**    $residents = $this->wasteManagementService->getResidents()
-            ->filter(function ($resident) {
-                return Residency::where('user_id', $resident->id)
-                    ->where('council_id', Auth::user()->council_id)
-                    ->exists();
-            });*/
+    public function getUsers()
+    {
+        try {
+            $councilId = Auth::user()->council_id;
+            $requests = $this->wasteManagementService->getUserRequests($councilId);
 
-            $residents = $this->wasteManagementService->getResidents()
-    ->filter(function ($resident) {
-        return Residency::where('user_id', $resident->id)
-            ->where('council_id', Auth::user()->council_id)
-            ->exists();
-    })
-    ->map(function ($resident) {
-        $residency = Residency::where('user_id', $resident->id)->first();
-        $areaName = $residency && $residency->area ? $residency->area->name : null;
-        return [
-            'id' => $resident->id,
-            'name' => $resident->name,
-            'email' => $resident->email,
-            'address' => $resident->address,
-            'payment_status' => $resident->payment_status,
-            'user_status' => $resident->user_status,
-            'area_name' => $areaName,
-        ];
-    });
+            $residents = User::where('role', 'resident')
+                ->where('council_id', $councilId)
+                ->with(['residency.area'])
+                ->get();
 
-        $collectors = $this->wasteManagementService->getCollectors();
-        return view('council.users', compact('requests', 'collectorCompanies', 'residents', 'collectors'));
-    } catch (\Exception $e) {
-        Log::error('CouncilController: Error loading users', [
-            'error' => $e->getMessage(),
-            'user_id' => Auth::id(),
+            $residentsData = $residents->map(function ($r) {
+                return [
+                    'id' => $r->id,
+                    'name' => $r->name,
+                    'email' => $r->email,
+                    'address' => $r->residency->billing_address ?? $r->address,
+                    'payment_status' => $r->payment_status,
+                    'user_status' => $r->user_status,
+                    'area_name' => $r->residency && $r->residency->area ? $r->residency->area->name : null,
+                ];
+            })->values();
+
+            $collectors = $this->wasteManagementService->getCollectors();
+            $collectorCompanies = $this->wasteManagementService->getCollectorCompanies()
+                ->filter(function ($company) use ($councilId) {
+                    return DB::table('council_collector_companies')
+                        ->where('council_id', $councilId)
+                        ->where('collector_company_id', $company->id)
+                        ->exists();
+                });
+
+            return view('council.users', [
+                'requests' => $requests,
+                'residents' => $residents,
+                'residentsData' => $residentsData,
+                'collectors' => $collectors,
+                'collectorCompanies' => $collectorCompanies,
+            ])->render();
+        } catch (\Exception $e) {
+            Log::error('CouncilController: Error loading users partial', [
+                'error' => $e->getMessage(),
+                'user_id' => Auth::id(),
+            ]);
+            return response()->json(['error' => 'Failed to load users'], 500);
+        }
+    }
+
+    public function getUsers2()
+    {
+        try {
+            $councilId = Auth::user()->council_id;
+            $requests = $this->wasteManagementService->getUserRequests($councilId);
+
+            $residents = User::where('role', 'resident')
+                ->where('council_id', $councilId)
+                ->get();
+
+            $residentsData = $residents->map(function ($r) {
+                $residency = Residency::where('user_id', $r->id)->first();
+                return [
+                    'id' => $r->id,
+                    'name' => $r->name,
+                    'email' => $r->email,
+                    'address' => $residency ? $residency->billing_address : $r->address,
+                    'payment_status' => $r->payment_status,
+                    'user_status' => $r->user_status,
+                    'area_name' => $residency && $residency->area ? $residency->area->name : null,
+                ];
+            })->values();
+
+            $collectors = $this->wasteManagementService->getCollectors();
+            $collectorCompanies = $this->wasteManagementService->getCollectorCompanies()
+                ->filter(function ($company) use ($councilId) {
+                    return DB::table('council_collector_companies')
+                        ->where('council_id', $councilId)
+                        ->where('collector_company_id', $company->id)
+                        ->exists();
+                });
+
+            return view('council.users', [
+                'requests' => $requests,
+                'residents' => $residents,
+                'residentsData' => $residentsData,
+                'collectors' => $collectors,
+                'collectorCompanies' => $collectorCompanies,
+            ])->render();
+        } catch (\Exception $e) {
+            Log::error('CouncilController: Error loading users partial', [
+                'error' => $e->getMessage(),
+                'user_id' => Auth::id(),
+            ]);
+            return response()->json(['error' => 'Failed to load users'], 500);
+        }
+    }
+
+    public function editUser($id)
+    {
+        $user = User::findOrFail($id);
+        $collectorCompanies = CollectorCompany::all();
+        $areas = Area::where('council_id', $user->council_id)->get();
+
+        return view('council.user-edit', compact('user', 'collectorCompanies', 'areas'));
+    }
+
+    public function updateUser(Request $request, $id)
+    {
+        $user = User::findOrFail($id);
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email,' . $user->id,
+            'role' => 'required|in:resident,collector',
+            'collector_company_id' => 'nullable|exists:collector_companies,id',
+            'address' => 'nullable|string|max:255',
+            'area_id' => 'nullable|exists:areas,id',
         ]);
-        return redirect()->back()->with('error', 'Failed to load users: ' . $e->getMessage());
-    }
-}
 
-
-
-/**public function getUsers()
-{
-    try {
-        $councilId = Auth::user()->council_id;
-
-        $requests = $this->wasteManagementService->getUserRequests($councilId);
-
-        $residents = User::where('role', 'resident')
-            ->whereHas('residency', function ($query) use ($councilId) {
-                $query->where('council_id', $councilId);
-            })
-            ->get();
-
-        $collectors = $this->wasteManagementService->getCollectors();
-
-        $collectorCompanies = $this->wasteManagementService->getCollectorCompanies()
-            ->filter(function ($company) use ($councilId) {
-                return DB::table('council_collector_companies')
-                    ->where('council_id', $councilId)
-                    ->where('collector_company_id', $company->id)
-                    ->exists();
-            });
-
-        return view('council.users', compact('requests', 'residents', 'collectors', 'collectorCompanies'))->render();
-    } catch (\Exception $e) {
-        Log::error('CouncilController: Error loading users partial', [
-            'error' => $e->getMessage(),
-            'user_id' => Auth::id(),
+        $user->update([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'role' => $validated['role'],
+            'collector_company_id' => $validated['collector_company_id'] ?? null,
         ]);
-        return response()->json(['error' => 'Failed to load users'], 500);
-    }
-}*/
 
+        if ($user->role === 'resident') {
+            Residency::updateOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'council_id' => $user->council_id,
+                    'billing_address' => $validated['address'] ?? null,
+                    'area_id' => $validated['area_id'] ?? null,
+                ]
+            );
+        } else {
+            Residency::where('user_id', $user->id)->delete();
+        }
 
-
-public function getUsers()
-{
-    try {
-        $councilId = Auth::user()->council_id;
-
-        $requests = $this->wasteManagementService->getUserRequests($councilId);
-
-        // Eager load residency and area
-        $residents = User::where('role', 'resident')
-            ->where('council_id', $councilId)
-            ->with(['residency.area']) // assuming relations are defined
-            ->get();
-
-        // Prepare residents data with billing_address and area_name from residency
-        $residentsData = $residents->map(function ($r) {
-            return [
-                'id'             => $r->id,
-                'name'           => $r->name,
-                'email'          => $r->email,
-                'address'        => $r->residency->billing_address ?? null,
-                'payment_status' => $r->payment_status,
-                'user_status'    => $r->user_status,
-                'area_name'      => $r->residency && $r->residency->area ? $r->residency->area->name : null,
-            ];
-        })->values();
-
-        $collectors = $this->wasteManagementService->getCollectors();
-
-        $collectorCompanies = $this->wasteManagementService->getCollectorCompanies()
-            ->filter(function ($company) use ($councilId) {
-                return DB::table('council_collector_companies')
-                    ->where('council_id', $councilId)
-                    ->where('collector_company_id', $company->id)
-                    ->exists();
-            });
-
-        return view('council.users', [
-            'requests'          => $requests,
-            'residents'         => $residents,
-            'residentsData'     => $residentsData,
-            'collectors'        => $collectors,
-            'collectorCompanies'=> $collectorCompanies,
-        ])->render();
-
-    } catch (\Exception $e) {
-        Log::error('CouncilController: Error loading users partial', [
-            'error'   => $e->getMessage(),
-            'user_id' => Auth::id(),
-        ]);
-        return response()->json(['error' => 'Failed to load users'], 500);
-    }
-}
-
-
-
-public function getUsers2()
-{
-    try {
-        $councilId = Auth::user()->council_id;
-
-        $requests = $this->wasteManagementService->getUserRequests($councilId);
-
- 
-
-        $residents = User::where('role', 'resident')
-             ->where('council_id', $councilId)
-          /**   ->whereHas('residency', function ($query) use ($councilId) {
-                $query->where('council_id', $councilId);
-            })*/
-            ->get();
-
-        // 🔹 Prepare clean residents data for JSON
-        $residentsData = $residents->map(function ($r) {
-            return [
-                'id'             => $r->id,
-                'name'           => $r->name,
-                'email'          => $r->email,
-                'address'        => $r->address,
-                'payment_status' => $r->payment_status,
-                'user_status'      => $r->user_status,
-            ];
-        })->values();
-
-        $collectors = $this->wasteManagementService->getCollectors();
-
-        $collectorCompanies = $this->wasteManagementService->getCollectorCompanies()
-            ->filter(function ($company) use ($councilId) {
-                return DB::table('council_collector_companies')
-                    ->where('council_id', $councilId)
-                    ->where('collector_company_id', $company->id)
-                    ->exists();
-            });
-
-        return view('council.users', [
-            'requests'          => $requests,
-            'residents'         => $residents,
-            'residentsData'     => $residentsData, // ✅ safe array
-            'collectors'        => $collectors,
-            'collectorCompanies'=> $collectorCompanies,
-        ])->render();
-
-    } catch (\Exception $e) {
-        Log::error('CouncilController: Error loading users partial', [
-            'error'   => $e->getMessage(),
-            'user_id' => Auth::id(),
-        ]);
-        return response()->json(['error' => 'Failed to load users'], 500);
-    }
-}
-
-
-public function editUser ($id)
-{
-    $user = User::findOrFail($id);
-    $collectorCompanies = CollectorCompany::all();
-
-    // Load areas for the user's council (or all areas if appropriate)
-    $areas = Area::where('council_id', $user->council_id)->get();
-
-    return view('council.user-edit', compact('user', 'collectorCompanies', 'areas'));
-}
-
-
-
-public function updateUser (Request $request, $id)
-{
-    $user = User::findOrFail($id);
-
-    $validated = $request->validate([
-        'name' => 'required|string|max:255',
-        'email' => 'required|email|unique:users,email,' . $user->id,
-        'role' => 'required|in:resident,collector',
-        'collector_company_id' => 'nullable|exists:collector_companies,id',
-        'address' => 'nullable|string|max:255', // This will be saved in residency.billing_address
-        'area_id' => 'nullable|exists:areas,id',
-    ]);
-
-    // Update user fields except address and area_id
-    $user->update([
-        'name' => $validated['name'],
-        'email' => $validated['email'],
-        'role' => $validated['role'],
-        'collector_company_id' => $validated['collector_company_id'] ?? null,
-    ]);
-
-    // Update or create residency record with billing_address and area_id
-    if ($user->role === 'resident') {
-        Residency::updateOrCreate(
-            ['user_id' => $user->id],
-            [
-                'council_id' => $user->council_id,
-                'billing_address' => $validated['address'] ?? null,
-                'area_id' => $validated['area_id'] ?? null,
-            ]
-        );
-    } else {
-        // If not resident, optionally delete residency record
-        Residency::where('user_id', $user->id)->delete();
+        return redirect()->route('council.users')->with('success', 'User updated successfully.');
     }
 
-    return redirect()->route('council.users')->with('success', 'User  updated successfully.');
-}
-
-
-
-
-
-
-public function showCreateUserForm()
-{
-    $collectorCompanies = CollectorCompany::all(); // or filter by council if needed
-    return view('council.users-create', compact('collectorCompanies'));
-}
-
+    public function showCreateUserForm()
+    {
+        $collectorCompanies = CollectorCompany::all();
+        $areas = Area::where('council_id', Auth::user()->council_id)->get();
+        return view('council.users-create', compact('collectorCompanies', 'areas'));
+    }
 
     public function pendingPickups()
     {
@@ -787,58 +763,45 @@ public function showCreateUserForm()
             return redirect()->back()->with('error', 'Failed to load payments: ' . $e->getMessage());
         }
     }
+
+
 public function reports()
 {
     $user = auth()->user();
-
-    // Base stats
     $stats = [
-        'users'    => 0,
-        'issues'   => 0,
+        'users' => 0,
+        'issues' => 0,
         'payments' => 0,
-        'pickups'  => 0,
+        'pickups' => 0,
     ];
 
     if ($user->role === 'management') {
-        // Superadmin -> See all
-        $stats['users']    = \App\Models\User::count();
-        $stats['issues']   = \App\Models\Issue::count();
-        $stats['payments'] = \App\Models\Payment::sum('amount');
-        $stats['pickups']  = \App\Models\Collection::count();
+        $stats['users'] = User::count();
+        $stats['issues'] = Issue::count();
+        $stats['payments'] = Payment::sum('amount');
+        $stats['pickups'] = Collection::count();
     } elseif ($user->role === 'council_admin') {
         $councilId = $user->council_id;
-
-        $stats['users'] = \App\Models\User::where('council_id', $councilId)->count();
-
-        $stats['issues'] = \App\Models\Issue::where('council_id', $councilId)->count();
-
-        // Payments through users in this council
-        $stats['payments'] = \App\Models\Payment::whereHas('user', function ($q) use ($councilId) {
+        $stats['users'] = User::where('council_id', $councilId)->count();
+        $stats['issues'] = Issue::where('council_id', $councilId)->count();
+        $stats['payments'] = Payment::whereHas('user', function ($q) use ($councilId) {
             $q->where('council_id', $councilId);
         })->sum('amount');
-
-        // Pickups through users in this council
-        $stats['pickups'] = \App\Models\Collection::whereHas('user', function ($q) use ($councilId) {
+        $stats['pickups'] = Collection::whereHas('resident', function ($q) use ($councilId) {
             $q->where('council_id', $councilId);
         })->count();
     } elseif ($user->role === 'collector_admin') {
         $companyId = $user->collector_company_id;
-
-        $stats['users'] = \App\Models\User::where('collector_company_id', $companyId)->count();
-
-        $stats['issues'] = \App\Models\Issue::where('collector_company_id', $companyId)->count();
-
-        // Payments through users served by this company
-        $stats['payments'] = \App\Models\Payment::whereHas('user', function ($q) use ($companyId) {
+        $stats['users'] = User::where('collector_company_id', $companyId)->count();
+        $stats['issues'] = Issue::where('collector_company_id', $companyId)->count();
+        $stats['payments'] = Payment::whereHas('user', function ($q) use ($companyId) {
             $q->where('collector_company_id', $companyId);
         })->sum('amount');
-
-        $stats['pickups'] = \App\Models\Collection::where('collector_company_id', $companyId)->count();
+        $stats['pickups'] = Collection::where('collector_company_id', $companyId)->count();
     }
 
     return view('reports', compact('stats', 'user'));
 }
-
 
     public function wasteGuide()
     {
@@ -853,158 +816,130 @@ public function reports()
         }
     }
 
-
-public function assignCollectorCompanyToCouncil(Request $request)
-{
-    $request->validate([
-        'collector_company_id' => 'required|exists:collector_companies,id',
-    ]);
-
-    $councilId = Auth::user()->council_id;
-    $companyId = $request->collector_company_id;
-
-    // Check if already assigned
-    $exists = DB::table('council_collector_companies')
-        ->where('council_id', $councilId)
-        ->where('collector_company_id', $companyId)
-        ->exists();
-
-    if ($exists) {
-        return redirect()->back()->with('error', 'This company is already assigned to your council.');
-    }
-
-    // Insert assignment
-    DB::table('council_collector_companies')->insert([
-        'council_id' => $councilId,
-        'collector_company_id' => $companyId,
-        'created_at' => now(),
-      
-    ]);
-
-    return redirect()->route('council.collectors')->with('success', 'Collector company added to your council successfully.');
-}
-
-
-public function collectorsIndex()
-{
-    try {
-        $councilId = Auth::user()->council_id;
-        $council = Council::findOrFail($councilId);
-
-        if ($council->employs_collectors) {
-            // Direct employment: show individual collectors linked to council
-            $collectors = User::where('council_id', $councilId)
-                ->where('role', 'collector')
-                ->get();
-
-            return view('council.collectors_direct', compact('collectors'));
-        } else {
-            // Contracted companies: show companies and their collectors
-          // Companies assigned to this council
-        $assignedCompanyIds = DB::table('council_collector_companies')
-            ->where('council_id', $councilId)
-            ->pluck('collector_company_id')
-            ->toArray();
-        // Companies assigned to council
-     //   $collectorCompanies = CollectorCompany::whereIn('id', $assignedCompanyIds)->with('collectors') ->get();
-$collectorCompanies = CollectorCompany::whereIn('id', $assignedCompanyIds)
-    ->with(['collectors', 'companyAdmin'])
-    ->get();
-
-
-                  // Companies NOT assigned to council (available to add)
-        $availableCompanies = CollectorCompany::whereNotIn('id', $assignedCompanyIds)->get();
-
-         // Load areas for this council
-        $areas = Area::where('council_id', $councilId)->get();
-        // Load existing assignments of companies to areas
-        $companyAreaAssignments = DB::table('collector_company_areas')
-            ->whereIn('collector_company_id', $assignedCompanyIds)
-            ->pluck('area_id', 'collector_company_id')
-            ->toArray();
-        return view('council.collectors_companies', compact(
-            'collectorCompanies', 'availableCompanies', 'areas', 'companyAreaAssignments' ));
-      //  return view('council.collectors_companies', compact('collectorCompanies', 'availableCompanies'));
-           // return view('council.collectors_companies', compact('collectorCompanies'));
-        }
-    } catch (\Exception $e) {
-        Log::error('Error fetching collectors: '.$e->getMessage(), ['userId' => Auth::id()]);
-        return response()->json([
-            'status' => 'error',
-            'message' => 'Failed to fetch collectors'
-        ], 500);
-    }
-}
-
-
-
-
-
-
-
-
-
-public function createUser (Request $request)
-{
-    $request->validate([
-        'name' => 'required|string|max:255',
-        'email' => 'required|email|unique:users,email',
-        'role' => 'required|in:resident,collector',
-        'collector_company_id' => 'nullable|exists:collector_companies,id',
-        'password' => 'required|string|min:8|confirmed',
-    ]);
-
-    DB::beginTransaction();
-
-    try {
-        // Create user
-        $user = User::create([
-             'id' => (string) Str::uuid(), 
-            'name' => $request->name,
-            'email' => $request->email,
-            'role' => $request->role,
-            'council_id' => Auth::user()->council_id,
-            'password' => Hash::make($request->password),
-            'is_active' => true,
+    public function assignCollectorCompanyToCouncil(Request $request)
+    {
+        $request->validate([
+            'collector_company_id' => 'required|exists:collector_companies,id',
         ]);
 
-        // If resident, create residency record
-        if ($request->role === 'resident') {
-            Residency::create([
-                'user_id' => $user->id,
-                'council_id' => Auth::user()->council_id,
-                // Add other residency fields if needed
-            ]);
+        $councilId = Auth::user()->council_id;
+        $companyId = $request->collector_company_id;
+
+        $exists = DB::table('council_collector_companies')
+            ->where('council_id', $councilId)
+            ->where('collector_company_id', $companyId)
+            ->exists();
+
+        if ($exists) {
+            return redirect()->back()->with('error', 'This company is already assigned to your council.');
         }
 
-        // If collector, assign collector company if provided
-        if ($request->role === 'collector' && $request->collector_company_id) {
-            // Optional: verify collector company belongs to council
-            $exists = DB::table('council_collector_companies')
-                ->where('council_id', Auth::user()->council_id)
-                ->where('collector_company_id', $request->collector_company_id)
-                ->exists();
+        DB::table('council_collector_companies')->insert([
+            'council_id' => $councilId,
+            'collector_company_id' => $companyId,
+            'created_at' => now(),
+        ]);
 
-            if (!$exists) {
-                throw new \Exception('Invalid collector company for your council.');
+        return redirect()->route('council.collectors')->with('success', 'Collector company added to your council successfully.');
+    }
+
+    public function collectorsIndex()
+    {
+        try {
+            $councilId = Auth::user()->council_id;
+            $council = Council::findOrFail($councilId);
+
+            if ($council->employs_collectors) {
+                $collectors = User::where('council_id', $councilId)
+                    ->where('role', 'collector')
+                    ->get();
+
+                return view('council.collectors_direct', compact('collectors'));
+            } else {
+                $assignedCompanyIds = DB::table('council_collector_companies')
+                    ->where('council_id', $councilId)
+                    ->pluck('collector_company_id')
+                    ->toArray();
+
+                $collectorCompanies = CollectorCompany::whereIn('id', $assignedCompanyIds)
+                    ->with(['collectors', 'companyAdmin'])
+                    ->get();
+
+                $availableCompanies = CollectorCompany::whereNotIn('id', $assignedCompanyIds)->get();
+                $areas = Area::where('council_id', $councilId)->get();
+                $companyAreaAssignments = DB::table('collector_company_areas')
+                    ->whereIn('collector_company_id', $assignedCompanyIds)
+                    ->pluck('area_id', 'collector_company_id')
+                    ->toArray();
+
+                return view('council.collectors_companies', compact(
+                    'collectorCompanies', 'availableCompanies', 'areas', 'companyAreaAssignments'
+                ));
+            }
+        } catch (\Exception $e) {
+            Log::error('Error fetching collectors: ' . $e->getMessage(), ['userId' => Auth::id()]);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to fetch collectors'
+            ], 500);
+        }
+    }
+
+    public function createUser(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'role' => 'required|in:resident,collector',
+            'collector_company_id' => 'nullable|exists:collector_companies,id',
+            'password' => 'required|string|min:8|confirmed',
+            'address' => 'nullable|string|max:255',
+            'area_id' => 'nullable|exists:areas,id',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            $user = User::create([
+                'id' => (string) Str::uuid(),
+                'name' => $request->name,
+                'email' => $request->email,
+                'role' => $request->role,
+                'council_id' => Auth::user()->council_id,
+                'password' => Hash::make($request->password),
+                'is_active' => true,
+            ]);
+
+            if ($request->role === 'resident') {
+                Residency::create([
+                    'user_id' => $user->id,
+                    'council_id' => Auth::user()->council_id,
+                    'billing_address' => $request->address,
+                    'area_id' => $request->area_id,
+                ]);
             }
 
-            $user->collector_company_id = $request->collector_company_id;
-            $user->save();
+            if ($request->role === 'collector' && $request->collector_company_id) {
+                $exists = DB::table('council_collector_companies')
+                    ->where('council_id', Auth::user()->council_id)
+                    ->where('collector_company_id', $request->collector_company_id)
+                    ->exists();
+
+                if (!$exists) {
+                    throw new \Exception('Invalid collector company for your council.');
+                }
+
+                $user->collector_company_id = $request->collector_company_id;
+                $user->save();
+            }
+
+            DB::commit();
+            return redirect()->route('council.users')->with('success', 'User created successfully.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->withInput()->with('error', 'Failed to create user: ' . $e->getMessage());
         }
-
-        // Optional: send notification or log action here
-        // $this->wasteManagementService->sendNotification(...);
-        // $this->wasteManagementService->logAction(...);
-
-        DB::commit();
-
-        return redirect()->route('council.users')->with('success', 'User  created successfully.');
-    } catch (\Exception $e) {
-        DB::rollBack();
-        return redirect()->back()->withInput()->with('error', 'Failed to create user: ' . $e->getMessage());
     }
-}
 
     public function resetUserPassword(Request $request, $id)
     {
@@ -1217,52 +1152,7 @@ public function createUser (Request $request)
         }
     }
 
-    public function schedulePickup(Request $request, $pickupId)
-    {
-        $request->validate([
-            'collector_id' => 'required|uuid|exists:users,id',
-            'scheduled_date' => 'required|date|after:today',
-        ]);
 
-        try {
-            $pickup = Collection::findOrFail($pickupId);
-            if ($pickup->council_id !== Auth::user()->council_id) {
-                throw new \Exception('Unauthorized: Pickup does not belong to your council');
-            }
-
-            $pickup->update([
-                'status' => 'scheduled',
-                'scheduled_date' => $request->scheduled_date,
-                'collector_id' => $request->collector_id,
-                'last_updated' => now(),
-            ]);
-
-            broadcast(new \App\Events\CollectionUpdated());
-
-            $this->wasteManagementService->sendNotification(
-                $pickup->user_id,
-                'Pickup Scheduled',
-                "Your {$pickup->wasteType->name} pickup is scheduled for " . \Carbon\Carbon::parse($request->scheduled_date)->toDateString()
-            );
-
-            $this->wasteManagementService->logAction(
-                'schedule_pickup',
-                "Council admin scheduled pickup {$pickupId} with collector {$request->collector_id}",
-                Auth::id(),
-                'collection',
-                $pickupId
-            );
-
-            return redirect()->route('council.pending-pickups')->with('success', 'Pickup scheduled successfully.');
-        } catch (\Exception $e) {
-            Log::error('CouncilController: Error scheduling pickup', [
-                'error' => $e->getMessage(),
-                'pickup_id' => $pickupId,
-                'user_id' => Auth::id(),
-            ]);
-            return redirect()->back()->with('error', $e->getMessage());
-        }
-    }
 
     public function updateIssueStatus(Request $request, $issueId)
     {
@@ -1301,123 +1191,105 @@ public function createUser (Request $request)
         }
     }
 
-public function bills()
-{
-    try {
-        $bills = $this->wasteManagementService->getCouncilBills(Auth::user()->council_id);
-        return view('council.payments', compact('bills'));
-    } catch (\Exception $e) {
-        Log::error('CouncilController: Error loading bills', [
-            'error' => $e->getMessage(),
-            'user_id' => Auth::id(),
-        ]);
-        return redirect()->back()->with('error', 'Failed to load bills: ' . $e->getMessage());
-    }
-}
-
-public function billDetails($billId)
-{
-    $bill = UserBill::with('user', 'payments')->findOrFail($billId);
-
-    // Optional: check if bill belongs to the council of the logged-in user
-    if ($bill->user->council_id !== Auth::user()->council_id) {
-        abort(403, 'Unauthorized access to this bill.');
+    public function bills()
+    {
+        try {
+            $bills = $this->wasteManagementService->getCouncilBills(Auth::user()->council_id);
+            return view('council.payments', compact('bills'));
+        } catch (\Exception $e) {
+            Log::error('CouncilController: Error loading bills', [
+                'error' => $e->getMessage(),
+                'user_id' => Auth::id(),
+            ]);
+            return redirect()->back()->with('error', 'Failed to load bills: ' . $e->getMessage());
+        }
     }
 
-    return view('council.bill_details', compact('bill'));
-}
+    public function billDetails($billId)
+    {
+        $bill = UserBill::with('user', 'payments')->findOrFail($billId);
 
-
-
-// CouncilController.php
-
-public function updatePaymentStatus(Request $request, $paymentId)
-{
-    $request->validate([
-        'status' => 'required|in:pending,completed,failed',
-    ]);
-
-    try {
-        DB::beginTransaction();
-
-        $payment = Payment::with('user')->findOrFail($paymentId);
-
-        // Ensure payment belongs to the same council
-        if ($payment->user->council_id !== Auth::user()->council_id) {
-            throw new \Exception('Unauthorized: Payment does not belong to your council');
+        if ($bill->user->council_id !== Auth::user()->council_id) {
+            abort(403, 'Unauthorized access to this bill.');
         }
 
-        // Update payment status
-        $payment->status = $request->status;
-        $payment->updated_at = now();
-        $payment->save();
+        return view('council.bill_details', compact('bill'));
+    }
 
-        if ($request->status === 'completed') {
-            // Find the latest unpaid/partial bill for the user
-            $bill = UserBill::where('user_id', $payment->user_id)
-                ->whereIn('status', ['unpaid', 'partial'])
-                ->orderBy('year', 'desc')
-                ->orderBy('month', 'desc')
-                ->first();
+    public function updatePaymentStatus(Request $request, $paymentId)
+    {
+        $request->validate([
+            'status' => 'required|in:pending,completed,failed',
+        ]);
 
-            if (!$bill) {
-                // If no pending bill, credit the user directly
-                $payment->user->increment('credit_balance', $payment->amount);
-            } else {
-                // Apply payment to bill
-                BillPayment::create([
-                    'bill_id' => $bill->id,
-                    'payment_id' => $payment->id,
-                    'amount_paid' => $payment->amount,
-                ]);
+        try {
+            DB::beginTransaction();
 
-                // Calculate total paid
-                $totalPaid = $bill->billPayments()->sum('amount_paid');
+            $payment = Payment::with('user')->findOrFail($paymentId);
 
-                if ($totalPaid == $bill->amount_due) {
-                    $bill->status = 'paid';
-                } elseif ($totalPaid < $bill->amount_due) {
-                    $bill->status = 'partial';
-                } else {
-                    // Overpaid → mark as paid and credit the excess
-                    $bill->status = 'paid';
-                    $excess = $totalPaid - $bill->amount_due;
-                    $payment->user->increment('credit_balance', $excess);
-                }
-                $bill->save();
+            if ($payment->user->council_id !== Auth::user()->council_id) {
+                throw new \Exception('Unauthorized: Payment does not belong to your council');
             }
+
+            $payment->status = $request->status;
+            $payment->updated_at = now();
+            $payment->save();
+
+            if ($request->status === 'completed') {
+                $bill = UserBill::where('user_id', $payment->user_id)
+                    ->whereIn('status', ['unpaid', 'partial'])
+                    ->orderBy('year', 'desc')
+                    ->orderBy('month', 'desc')
+                    ->first();
+
+                if (!$bill) {
+                    $payment->user->increment('credit_balance', $payment->amount);
+                } else {
+                    BillPayment::create([
+                        'bill_id' => $bill->id,
+                        'payment_id' => $payment->id,
+                        'amount_paid' => $payment->amount,
+                    ]);
+
+                    $totalPaid = $bill->billPayments()->sum('amount_paid');
+
+                    if ($totalPaid == $bill->amount_due) {
+                        $bill->status = 'paid';
+                    } elseif ($totalPaid < $bill->amount_due) {
+                        $bill->status = 'partial';
+                    } else {
+                        $bill->status = 'paid';
+                        $excess = $totalPaid - $bill->amount_due;
+                        $payment->user->increment('credit_balance', $excess);
+                    }
+                    $bill->save();
+                }
+            }
+
+            $this->wasteManagementService->sendNotification(
+                $payment->user_id,
+                'Payment Status Updated',
+                "Your payment of {$payment->amount} is now {$request->status}."
+            );
+
+            $this->wasteManagementService->logAction(
+                'update_payment',
+                "Council admin updated payment {$paymentId} to status {$request->status}",
+                Auth::id(),
+                'payment',
+                $paymentId
+            );
+
+            DB::commit();
+            return redirect()->route('council.payments')->with('success', 'Payment status updated successfully.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('CouncilController: Error updating payment status', [
+                'error' => $e->getMessage(),
+                'payment_id' => $paymentId,
+                'user_id' => Auth::id(),
+            ]);
+            return redirect()->back()->with('error', $e->getMessage());
         }
-
-        // Notifications + Audit
-        $this->wasteManagementService->sendNotification(
-            $payment->user_id,
-            'Payment Status Updated',
-            "Your payment of {$payment->amount} is now {$request->status}."
-        );
-
-        $this->wasteManagementService->logAction(
-            'update_payment',
-            "Council admin updated payment {$paymentId} to status {$request->status}",
-            Auth::id(),
-            'payment',
-            $paymentId
-        );
-
-        DB::commit();
-        return redirect()->route('council.payments')->with('success', 'Payment status updated successfully.');
-    } catch (\Exception $e) {
-        DB::rollBack();
-        Log::error('CouncilController: Error updating payment status', [
-            'error' => $e->getMessage(),
-            'payment_id' => $paymentId,
-            'user_id' => Auth::id(),
-        ]);
-        return redirect()->back()->with('error', $e->getMessage());
     }
 }
-
-
-}
-
-
-

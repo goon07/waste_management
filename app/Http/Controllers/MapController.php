@@ -22,14 +22,20 @@ class MapController extends Controller
     };
 
     // Eager load user + relations
-    $residencies = $residencies
-        ->with([
-            'user:id,name',
-            'user.payments' => fn($q) => $q->latest()->limit(1),
-            'user.collections:id,user_id,status',
-            'user.issues:id,user_id,status',
-        ])
-        ->get();
+  
+
+
+      $residencies = $residencies
+    ->with([
+        'user:id,name',
+        'user.payments' => fn($q) => $q->latest()->limit(1),
+        'user.collections:id,resident_id',
+        'user.collections.schedules:id,collection_id,status',
+        'user.issues:id,user_id,status',
+    ])
+    ->get();
+
+
 
 $mapData = $residencies->map(function ($res) {
     $user = $res->user;

@@ -65,7 +65,7 @@ public function collector()
 
     public function collections()
     {
-        return $this->hasMany(Collection::class, 'user_id');
+        return $this->hasMany(Collection::class, 'resident_id');
     }
 
     public function collectionsAsCollector()
